@@ -39,9 +39,19 @@ python main.py
 - `/backtest`: resultado do backtest atual.
 - `/ml/status`: status do treino de machine learning.
 - `/ml/validation`: comparacao fora da amostra entre regra-base e filtro de IA.
+- `/alerts/telegram/status`: status das variaveis Telegram.
+- `/alerts/telegram/test`: envia mensagem de teste.
+- `/alerts/telegram/latest-signal`: envia o sinal atual.
 
 ## Observacao Importante
 
 O Railway injeta a variavel `PORT` automaticamente. A API ja usa essa porta e escuta em `0.0.0.0`, que e necessario para funcionar fora da maquina local.
 
 Uploads feitos pelo painel ficam em `data/uploads`. No Railway, esse armazenamento local pode ser perdido em redeploy. Para produto real, a proxima etapa e trocar isso por banco ou storage persistente, como Postgres ou volume persistente.
+
+## Variaveis Telegram
+
+Para alertas em grupo/canal:
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`

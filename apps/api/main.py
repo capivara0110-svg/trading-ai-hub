@@ -16,13 +16,16 @@ from packages.strategy_core.datasets import DatasetStore
 from packages.strategy_core.datasets import Dataset
 from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.signals import detect_forex_signal
+from packages.strategy_core.telegram_alerts import format_signal_message
+from packages.strategy_core.telegram_alerts import send_telegram_message
+from packages.strategy_core.telegram_alerts import telegram_config_status
 from packages.strategy_core.validation import run_out_of_sample_validation
 
 
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -84,6 +87,10 @@ class TradingApiHandler(BaseHTTPRequestHandler):
             self.send_json(run_out_of_sample_validation(candles).to_dict())
             return
 
+        if parsed.path == "/alerts/telegram/status":
+            self.send_json(telegram_config_status())
+            return
+
         if self.send_static(parsed.path):
             return
 
@@ -107,6 +114,25 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     content=str(payload.get("content") or ""),
                 )
                 self.send_json({"dataset": dataset.to_dict(DATASETS.active_id())}, status=201)
+                return
+
+            if parsed.path == "/alerts/telegram/test":
+                result = send_telegram_message(
+                    "Trading AI Hub\n\nTeste de conexao Telegram realizado com sucesso.\n\nAviso: ambiente experimental."
+                )
+                self.send_json({"sent": True, "telegramOk": bool(result.get("ok"))})
+                return
+
+            if parsed.path == "/alerts/telegram/latest-signal":
+                dataset = DATASETS.active_dataset()
+                candles = load_candles(DATASETS.active_path())
+                signal = detect_forex_signal(
+                    candles,
+                    symbol=dataset.symbol if dataset else "EURUSD",
+                    timeframe=dataset.timeframe if dataset else "M5",
+                )
+                result = send_telegram_message(format_signal_message(signal))
+                self.send_json({"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict()})
                 return
 
             self.send_json({"error": "route not found"}, status=404)

@@ -2,6 +2,9 @@ const statusEl = document.querySelector("#api-status");
 const refreshButton = document.querySelector("#refresh-button");
 const importForm = document.querySelector("#import-form");
 const importMessage = document.querySelector("#import-message");
+const telegramTestButton = document.querySelector("#telegram-test-button");
+const telegramSignalButton = document.querySelector("#telegram-signal-button");
+const telegramMessage = document.querySelector("#telegram-message");
 
 const formatNumber = (value, digits = 5) => {
   if (value === null || value === undefined) return "--";
@@ -70,6 +73,15 @@ function renderValidation(validation) {
     `${validation.delta.trades} trades | DD ${Number(validation.delta.drawdownPips || 0).toFixed(1)}`;
 }
 
+function renderTelegramStatus(status) {
+  const text = status.configured
+    ? "Telegram configurado no ambiente."
+    : "Configure TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID no Railway.";
+  document.querySelector("#telegram-status").textContent = text;
+  telegramTestButton.disabled = !status.configured;
+  telegramSignalButton.disabled = !status.configured;
+}
+
 function renderDatasets(payload) {
   const list = document.querySelector("#datasets-list");
   const datasets = Array.isArray(payload.datasets) ? payload.datasets : [];
@@ -131,22 +143,34 @@ function renderBacktest(backtest) {
 async function loadDashboard() {
   statusEl.textContent = "Atualizando";
   try {
-    const [signal, backtest, datasets, model, validation] = await Promise.all([
+    const [signal, backtest, datasets, model, validation, telegram] = await Promise.all([
       getJson("/signals/latest"),
       getJson("/backtest"),
       getJson("/datasets"),
       getJson("/ml/status"),
       getJson("/ml/validation"),
+      getJson("/alerts/telegram/status"),
     ]);
     renderSignal(signal);
     renderBacktest(backtest);
     renderDatasets(datasets);
     renderMlStatus(model);
     renderValidation(validation);
+    renderTelegramStatus(telegram);
     statusEl.textContent = "Online";
   } catch (error) {
     statusEl.textContent = "Erro na API";
     console.error(error);
+  }
+}
+
+async function sendTelegram(path, successMessage) {
+  telegramMessage.textContent = "Enviando...";
+  try {
+    await postJson(path, {});
+    telegramMessage.textContent = successMessage;
+  } catch (error) {
+    telegramMessage.textContent = error.message;
   }
 }
 
@@ -176,4 +200,6 @@ async function handleImport(event) {
 
 refreshButton.addEventListener("click", loadDashboard);
 importForm.addEventListener("submit", handleImport);
+telegramTestButton.addEventListener("click", () => sendTelegram("/alerts/telegram/test", "Mensagem de teste enviada."));
+telegramSignalButton.addEventListener("click", () => sendTelegram("/alerts/telegram/latest-signal", "Sinal enviado ao Telegram."));
 loadDashboard();

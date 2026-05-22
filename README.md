@@ -128,6 +128,7 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/backtest`
 - `http://127.0.0.1:8765/ml/status`
 - `http://127.0.0.1:8765/ml/validation`
+- `http://127.0.0.1:8765/alerts/telegram/status`
 
 Tambem e possivel simular o ambiente do Railway usando uma porta dinamica:
 
@@ -187,3 +188,14 @@ Tambem aceita o formato comum exportado pelo MT5:
 ```
 
 O CSV precisa ter pelo menos 25 candles. Apos importar, o dataset vira o ativo e o painel passa a calcular sinal/backtest usando esse historico.
+
+## Alertas Telegram
+
+Configure no Railway:
+
+```text
+TELEGRAM_BOT_TOKEN=token_do_bot
+TELEGRAM_CHAT_ID=id_do_grupo_ou_canal
+```
+
+Depois use o painel para testar a conexao e enviar o sinal atual ao grupo.
