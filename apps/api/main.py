@@ -24,13 +24,15 @@ from packages.strategy_core.telegram_alerts import mark_signal_sent
 from packages.strategy_core.telegram_alerts import send_telegram_message
 from packages.strategy_core.telegram_alerts import should_send_signal
 from packages.strategy_core.telegram_alerts import telegram_config_status
+from packages.strategy_core.twelve_data import fetch_time_series
+from packages.strategy_core.twelve_data import twelve_data_status
 from packages.strategy_core.validation import run_out_of_sample_validation
 
 
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.10.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -101,6 +103,10 @@ class TradingApiHandler(BaseHTTPRequestHandler):
             self.send_json(alpha_vantage_status())
             return
 
+        if parsed.path == "/market/twelve-data/status":
+            self.send_json(twelve_data_status())
+            return
+
         if self.send_static(parsed.path):
             return
 
@@ -151,6 +157,22 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 timeframe = str(payload.get("timeframe") or "M5")
                 outputsize = str(payload.get("outputsize") or "compact")
                 candles = fetch_fx_intraday(symbol, timeframe, outputsize)
+                dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
+                response: dict[str, object] = {"dataset": dataset.to_dict(DATASETS.active_id())}
+                if bool(payload.get("alert")):
+                    response["alert"] = check_and_send_latest_alert()
+                self.send_json(response, status=201)
+                return
+
+            if parsed.path == "/market/twelve-data/refresh":
+                payload = self.read_json(max_size=20_000)
+                if not self.authorized_market_ingest(payload):
+                    self.send_json({"error": "ingestao nao autorizada"}, status=401)
+                    return
+                symbol = str(payload.get("symbol") or "EURUSD")
+                timeframe = str(payload.get("timeframe") or "M5")
+                outputsize = int(payload.get("outputsize") or 100)
+                candles = fetch_time_series(symbol, timeframe, outputsize)
                 dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
                 response: dict[str, object] = {"dataset": dataset.to_dict(DATASETS.active_id())}
                 if bool(payload.get("alert")):

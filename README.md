@@ -201,6 +201,7 @@ TELEGRAM_MIN_CONFIDENCE=0.70
 ALERT_JOB_SECRET=uma_senha_grande_para_cron
 MARKET_INGEST_SECRET=uma_senha_grande_para_receber_candles
 ALPHA_VANTAGE_API_KEY=sua_chave_alpha_vantage
+TWELVE_DATA_API_KEY=sua_chave_twelve_data
 ```
 
 Depois use o painel para testar a conexao e enviar o sinal atual ao grupo.
@@ -224,4 +225,10 @@ Tambem e possivel atualizar candles de Forex pela Alpha Vantage no painel ou pel
 
 ```text
 POST /market/alpha-vantage/refresh
+```
+
+Ou pela Twelve Data:
+
+```text
+POST /market/twelve-data/refresh
 ```

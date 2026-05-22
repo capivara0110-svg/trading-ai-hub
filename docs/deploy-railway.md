@@ -47,6 +47,8 @@ python main.py
 - `/market/candles`: recebe candles de MT5/API externa.
 - `/market/alpha-vantage/status`: status da chave Alpha Vantage.
 - `/market/alpha-vantage/refresh`: baixa candles Forex da Alpha Vantage.
+- `/market/twelve-data/status`: status da chave Twelve Data.
+- `/market/twelve-data/refresh`: baixa candles Forex da Twelve Data.
 
 ## Observacao Importante
 
@@ -64,3 +66,4 @@ Para alertas em grupo/canal:
 - `ALERT_JOB_SECRET` para proteger `/jobs/check-alerts`
 - `MARKET_INGEST_SECRET` para proteger `/market/candles`
 - `ALPHA_VANTAGE_API_KEY` para atualizar candles via Alpha Vantage
+- `TWELVE_DATA_API_KEY` para atualizar candles via Twelve Data

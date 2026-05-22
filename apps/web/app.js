@@ -9,6 +9,9 @@ const telegramMessage = document.querySelector("#telegram-message");
 const alphaForm = document.querySelector("#alpha-form");
 const alphaMessage = document.querySelector("#alpha-message");
 const alphaRefreshButton = document.querySelector("#alpha-refresh-button");
+const twelveForm = document.querySelector("#twelve-form");
+const twelveMessage = document.querySelector("#twelve-message");
+const twelveRefreshButton = document.querySelector("#twelve-refresh-button");
 
 const formatNumber = (value, digits = 5) => {
   if (value === null || value === undefined) return "--";
@@ -94,6 +97,13 @@ function renderAlphaStatus(status) {
   alphaRefreshButton.disabled = !status.configured;
 }
 
+function renderTwelveStatus(status) {
+  document.querySelector("#twelve-status").textContent = status.configured
+    ? "Twelve Data configurada no ambiente."
+    : "Configure TWELVE_DATA_API_KEY no Railway.";
+  twelveRefreshButton.disabled = !status.configured;
+}
+
 function renderDatasets(payload) {
   const list = document.querySelector("#datasets-list");
   const datasets = Array.isArray(payload.datasets) ? payload.datasets : [];
@@ -155,7 +165,7 @@ function renderBacktest(backtest) {
 async function loadDashboard() {
   statusEl.textContent = "Atualizando";
   try {
-    const [signal, backtest, datasets, model, validation, telegram, alpha] = await Promise.all([
+    const [signal, backtest, datasets, model, validation, telegram, alpha, twelve] = await Promise.all([
       getJson("/signals/latest"),
       getJson("/backtest"),
       getJson("/datasets"),
@@ -163,6 +173,7 @@ async function loadDashboard() {
       getJson("/ml/validation"),
       getJson("/alerts/telegram/status"),
       getJson("/market/alpha-vantage/status"),
+      getJson("/market/twelve-data/status"),
     ]);
     renderSignal(signal);
     renderBacktest(backtest);
@@ -171,10 +182,28 @@ async function loadDashboard() {
     renderValidation(validation);
     renderTelegramStatus(telegram);
     renderAlphaStatus(alpha);
+    renderTwelveStatus(twelve);
     statusEl.textContent = "Online";
   } catch (error) {
     statusEl.textContent = "Erro na API";
     console.error(error);
+  }
+}
+
+async function handleTwelveRefresh(event) {
+  event.preventDefault();
+  twelveMessage.textContent = "Atualizando candles...";
+  try {
+    await postJson("/market/twelve-data/refresh", {
+      symbol: document.querySelector("#twelve-symbol-input").value,
+      timeframe: document.querySelector("#twelve-timeframe-input").value,
+      outputsize: Number(document.querySelector("#twelve-outputsize-input").value || 100),
+      alert: document.querySelector("#twelve-alert-input").checked,
+    });
+    twelveMessage.textContent = "Candles atualizados.";
+    await loadDashboard();
+  } catch (error) {
+    twelveMessage.textContent = error.message;
   }
 }
 
@@ -233,6 +262,7 @@ async function handleImport(event) {
 refreshButton.addEventListener("click", loadDashboard);
 importForm.addEventListener("submit", handleImport);
 alphaForm.addEventListener("submit", handleAlphaRefresh);
+twelveForm.addEventListener("submit", handleTwelveRefresh);
 telegramTestButton.addEventListener("click", () => sendTelegram("/alerts/telegram/test", "Mensagem de teste enviada."));
 telegramSignalButton.addEventListener("click", () => sendTelegram("/alerts/telegram/latest-signal", "Sinal enviado ao Telegram."));
 telegramCheckButton.addEventListener("click", () => sendTelegram("/alerts/telegram/check-latest", "Alerta enviado ao Telegram."));
