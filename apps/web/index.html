@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Trading AI Hub</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Forex research desk</p>
+          <h1>Trading AI Hub</h1>
+        </div>
+        <div class="status" id="api-status">Conectando</div>
+      </header>
+
+      <section class="signal-board" aria-label="Sinal atual">
+        <div class="signal-main">
+          <span class="label">Sinal atual</span>
+          <strong id="signal-side">--</strong>
+          <p id="signal-reason">Aguardando dados do motor de sinais.</p>
+        </div>
+        <div class="signal-grid">
+          <div>
+            <span>Ativo</span>
+            <strong id="signal-symbol">--</strong>
+          </div>
+          <div>
+            <span>Timeframe</span>
+            <strong id="signal-timeframe">--</strong>
+          </div>
+          <div>
+            <span>Confianca</span>
+            <strong id="signal-confidence">--</strong>
+          </div>
+          <div>
+            <span>Entrada</span>
+            <strong id="signal-entry">--</strong>
+          </div>
+          <div>
+            <span>Stop</span>
+            <strong id="signal-stop">--</strong>
+          </div>
+          <div>
+            <span>Alvos</span>
+            <strong id="signal-targets">--</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="Metricas de backtest">
+        <article>
+          <span>Lucro total</span>
+          <strong id="metric-profit">--</strong>
+          <small>pips no backtest</small>
+        </article>
+        <article>
+          <span>Acerto</span>
+          <strong id="metric-winrate">--</strong>
+          <small>trades vencedores</small>
+        </article>
+        <article>
+          <span>Payoff</span>
+          <strong id="metric-payoff">--</strong>
+          <small>ganho medio / perda media</small>
+        </article>
+        <article>
+          <span>Drawdown</span>
+          <strong id="metric-drawdown">--</strong>
+          <small>maior queda em pips</small>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <span class="label">Historico</span>
+              <h2>Ultimos trades simulados</h2>
+            </div>
+            <button id="refresh-button" type="button">Atualizar</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Horario</th>
+                  <th>Lado</th>
+                  <th>Entrada</th>
+                  <th>Saida</th>
+                  <th>Resultado</th>
+                </tr>
+              </thead>
+              <tbody id="trades-body">
+                <tr>
+                  <td colspan="5">Carregando backtest...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <aside class="panel risk-panel">
+          <span class="label">Produto futuro</span>
+          <h2>Acesso pago</h2>
+          <p>
+            Esta area vai receber login, planos, bloqueio por assinatura e metricas
+            auditaveis antes de qualquer venda de acesso.
+          </p>
+          <ul>
+            <li>Sinais por plano</li>
+            <li>Performance historica</li>
+            <li>Controle de risco</li>
+            <li>Aviso claro de risco</li>
+          </ul>
+        </aside>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

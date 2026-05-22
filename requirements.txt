@@ -1,0 +1,2 @@
+# No external dependencies yet.
+# The current MVP runs with Python's standard library.
