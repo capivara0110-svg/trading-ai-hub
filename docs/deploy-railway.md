@@ -43,6 +43,8 @@ python main.py
 - `/alerts/telegram/test`: envia mensagem de teste.
 - `/alerts/telegram/latest-signal`: envia o sinal atual.
 - `/alerts/telegram/check-latest`: envia apenas sinal valido e ainda nao enviado.
+- `/ai/status`: status da chave OpenAI e modelo configurado.
+- `/ai/explain-latest-signal`: gera uma leitura curta do sinal atual.
 - `/jobs/check-alerts`: job protegido para cron de alertas.
 - `/market/candles`: recebe candles de MT5/API externa.
 - `/market/alpha-vantage/status`: status da chave Alpha Vantage.
@@ -67,3 +69,6 @@ Para alertas em grupo/canal:
 - `MARKET_INGEST_SECRET` para proteger `/market/candles`
 - `ALPHA_VANTAGE_API_KEY` para atualizar candles via Alpha Vantage
 - `TWELVE_DATA_API_KEY` para atualizar candles via Twelve Data
+- `OPENAI_API_KEY` para explicar sinais com IA
+- `AI_MODEL` opcional, padrao `gpt-4.1-nano`
+- `AI_TELEGRAM_EXPLANATION` opcional, padrao `true`

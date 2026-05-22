@@ -129,6 +129,7 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/ml/status`
 - `http://127.0.0.1:8765/ml/validation`
 - `http://127.0.0.1:8765/alerts/telegram/status`
+- `http://127.0.0.1:8765/ai/status`
 - `http://127.0.0.1:8765/market/candles`
 
 Tambem e possivel simular o ambiente do Railway usando uma porta dinamica:
@@ -202,11 +203,16 @@ ALERT_JOB_SECRET=uma_senha_grande_para_cron
 MARKET_INGEST_SECRET=uma_senha_grande_para_receber_candles
 ALPHA_VANTAGE_API_KEY=sua_chave_alpha_vantage
 TWELVE_DATA_API_KEY=sua_chave_twelve_data
+OPENAI_API_KEY=sua_chave_openai
+AI_MODEL=gpt-4.1-nano
+AI_TELEGRAM_EXPLANATION=true
 ```
 
 Depois use o painel para testar a conexao e enviar o sinal atual ao grupo.
 
 O botao `Verificar e alertar` so envia se houver sinal operacional, se a confianca for maior que o minimo e se o mesmo sinal ainda nao tiver sido enviado.
+
+Se `OPENAI_API_KEY` estiver configurada, o painel tambem pode gerar uma leitura curta do sinal. Quando `AI_TELEGRAM_EXPLANATION=true`, essa leitura entra como complemento na mensagem do Telegram. A IA nao decide a ordem; ela apenas explica o sinal tecnico/ML.
 
 Para chamada automatica por cron, use:
 

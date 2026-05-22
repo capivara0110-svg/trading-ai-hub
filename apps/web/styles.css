@@ -325,14 +325,27 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
-  min-height: 40px;
   border: 1px solid rgba(238, 244, 239, 0.16);
   border-radius: 6px;
   background: rgba(238, 244, 239, 0.08);
   color: #eef4ef;
+}
+
+input,
+select {
+  min-height: 40px;
   padding: 0 10px;
+}
+
+textarea {
+  min-height: 148px;
+  margin-top: 12px;
+  padding: 12px;
+  resize: vertical;
+  line-height: 1.5;
 }
 
 input[type="file"] {

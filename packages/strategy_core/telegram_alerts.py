@@ -20,28 +20,28 @@ def telegram_config_status() -> dict[str, object]:
     }
 
 
-def format_signal_message(signal: Signal) -> str:
+def format_signal_message(signal: Signal, ai_note: str | None = None) -> str:
     targets = " / ".join(str(target) for target in signal.take_profit) if signal.take_profit else "--"
     reasons = "\n".join(f"- {reason}" for reason in signal.reason)
-    return "\n".join(
-        [
-            "Trading AI Hub",
-            "",
-            f"{signal.symbol} {signal.timeframe}",
-            f"SINAL: {signal.side}",
-            f"Confianca: {round(signal.confidence * 100)}%",
-            f"IA score: {round((signal.ml_score or 0) * 100)}%" if signal.ml_score is not None else "IA score: --",
-            "",
-            f"Entrada: {signal.entry if signal.entry is not None else '--'}",
-            f"Stop: {signal.stop_loss if signal.stop_loss is not None else '--'}",
-            f"Alvos: {targets}",
-            "",
-            "Motivos:",
-            reasons or "- sem motivo informado",
-            "",
-            "Aviso: sinal experimental, nao e recomendacao financeira nem garantia de lucro.",
-        ]
-    )
+    lines = [
+        "Trading AI Hub",
+        "",
+        f"{signal.symbol} {signal.timeframe}",
+        f"SINAL: {signal.side}",
+        f"Confianca: {round(signal.confidence * 100)}%",
+        f"IA score: {round((signal.ml_score or 0) * 100)}%" if signal.ml_score is not None else "IA score: --",
+        "",
+        f"Entrada: {signal.entry if signal.entry is not None else '--'}",
+        f"Stop: {signal.stop_loss if signal.stop_loss is not None else '--'}",
+        f"Alvos: {targets}",
+        "",
+        "Motivos:",
+        reasons or "- sem motivo informado",
+    ]
+    if ai_note:
+        lines.extend(["", "Leitura da IA:", ai_note.strip()])
+    lines.extend(["", "Aviso: sinal experimental, nao e recomendacao financeira nem garantia de lucro."])
+    return "\n".join(lines)
 
 
 def send_telegram_message(text: str) -> dict[str, object]:

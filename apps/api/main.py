@@ -18,6 +18,9 @@ from packages.strategy_core.datasets import DatasetStore
 from packages.strategy_core.datasets import Dataset
 from packages.strategy_core.datasets import candles_from_payload
 from packages.strategy_core.ml_model import train_signal_quality_model
+from packages.strategy_core.openai_ai import explain_signal
+from packages.strategy_core.openai_ai import openai_config_status
+from packages.strategy_core.openai_ai import should_add_ai_to_telegram
 from packages.strategy_core.signals import detect_forex_signal
 from packages.strategy_core.telegram_alerts import format_signal_message
 from packages.strategy_core.telegram_alerts import mark_signal_sent
@@ -32,7 +35,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.10.0"
+APP_VERSION = "0.11.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -97,6 +100,10 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/alerts/telegram/status":
             self.send_json(telegram_config_status())
+            return
+
+        if parsed.path == "/ai/status":
+            self.send_json(openai_config_status())
             return
 
         if parsed.path == "/market/alpha-vantage/status":
@@ -195,12 +202,16 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     symbol=dataset.symbol if dataset else "EURUSD",
                     timeframe=dataset.timeframe if dataset else "M5",
                 )
-                result = send_telegram_message(format_signal_message(signal))
+                result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal)))
                 self.send_json({"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict()})
                 return
 
             if parsed.path == "/alerts/telegram/check-latest":
                 self.send_json(check_and_send_latest_alert())
+                return
+
+            if parsed.path == "/ai/explain-latest-signal":
+                self.send_json(explain_signal(latest_signal()))
                 return
 
             if parsed.path == "/jobs/check-alerts":
@@ -279,7 +290,7 @@ class TradingApiHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Job-Secret, X-Market-Secret")
         self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
@@ -309,9 +320,21 @@ def check_and_send_latest_alert() -> dict[str, object]:
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
     if not should_send:
         return {"sent": False, "reason": reason, "signal": signal.to_dict()}
-    result = send_telegram_message(format_signal_message(signal))
+    result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal)))
     mark_signal_sent(signal, TELEGRAM_ALERT_STATE)
     return {"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict()}
+
+
+def optional_ai_note(signal: object) -> str | None:
+    if not should_add_ai_to_telegram():
+        return None
+    try:
+        explanation = explain_signal(signal)
+    except Exception as error:
+        print(f"AI explanation skipped: {error}", flush=True)
+        return None
+    text = explanation.get("text")
+    return str(text) if text else None
 
 
 if __name__ == "__main__":
