@@ -58,6 +58,18 @@ function renderMlStatus(model) {
   document.querySelector("#metric-ml-status").textContent = status;
 }
 
+function renderValidation(validation) {
+  document.querySelector("#validation-base-pips").textContent = `${Number(validation.base.totalPips || 0).toFixed(1)} pips`;
+  document.querySelector("#validation-ai-pips").textContent = `${Number(validation.aiFiltered.totalPips || 0).toFixed(1)} pips`;
+  document.querySelector("#validation-delta-pips").textContent = `${Number(validation.delta.totalPips || 0).toFixed(1)} pips`;
+  document.querySelector("#validation-base-detail").textContent =
+    `${validation.base.totalTrades} trades | ${formatPercent(validation.base.winRate)} acerto`;
+  document.querySelector("#validation-ai-detail").textContent =
+    `${validation.aiFiltered.totalTrades} trades | ${formatPercent(validation.aiFiltered.winRate)} acerto`;
+  document.querySelector("#validation-delta-detail").textContent =
+    `${validation.delta.trades} trades | DD ${Number(validation.delta.drawdownPips || 0).toFixed(1)}`;
+}
+
 function renderDatasets(payload) {
   const list = document.querySelector("#datasets-list");
   const datasets = Array.isArray(payload.datasets) ? payload.datasets : [];
@@ -119,16 +131,18 @@ function renderBacktest(backtest) {
 async function loadDashboard() {
   statusEl.textContent = "Atualizando";
   try {
-    const [signal, backtest, datasets, model] = await Promise.all([
+    const [signal, backtest, datasets, model, validation] = await Promise.all([
       getJson("/signals/latest"),
       getJson("/backtest"),
       getJson("/datasets"),
       getJson("/ml/status"),
+      getJson("/ml/validation"),
     ]);
     renderSignal(signal);
     renderBacktest(backtest);
     renderDatasets(datasets);
     renderMlStatus(model);
+    renderValidation(validation);
     statusEl.textContent = "Online";
   } catch (error) {
     statusEl.textContent = "Erro na API";

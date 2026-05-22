@@ -40,6 +40,49 @@ def detect_forex_signal(
     symbol: str = "EURUSD",
     timeframe: str = "M5",
 ) -> Signal:
+    signal = detect_rule_signal(candles, symbol, timeframe)
+    if signal.side == "NO_TRADE" and "dados insuficientes" in signal.reason:
+        return signal
+
+    model = train_signal_quality_model(candles)
+    features = extract_features(candles)
+    ml_score = model.score(features) if features else 0.5
+
+    if signal.side == "NO_TRADE":
+        return Signal(
+            symbol,
+            timeframe,
+            "NO_TRADE",
+            0.0,
+            None,
+            None,
+            [],
+            signal_reasons(signal.reason, model.trained, ml_score),
+            ml_score=ml_score,
+            ml_trained=model.trained,
+        )
+
+    side_score = ml_score if signal.side == "BUY" else 1 - ml_score
+    confidence = round((signal.confidence * 0.72) + (side_score * 0.28), 2) if model.trained else signal.confidence
+    return Signal(
+        symbol=signal.symbol,
+        timeframe=signal.timeframe,
+        side=signal.side,
+        confidence=confidence,
+        entry=signal.entry,
+        stop_loss=signal.stop_loss,
+        take_profit=signal.take_profit,
+        reason=signal_reasons(signal.reason, model.trained, side_score),
+        ml_score=side_score,
+        ml_trained=model.trained,
+    )
+
+
+def detect_rule_signal(
+    candles: list[Candle],
+    symbol: str = "EURUSD",
+    timeframe: str = "M5",
+) -> Signal:
     closes = [candle.close for candle in candles]
     fast = sma(closes, 5)
     slow = sma(closes, 20)
@@ -50,17 +93,13 @@ def detect_forex_signal(
         return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["dados insuficientes"])
 
     last = candles[-1]
-    model = train_signal_quality_model(candles)
-    features = extract_features(candles)
-    ml_score = model.score(features) if features else 0.5
     body = abs(last.close - last.open)
     candle_range = max(last.high - last.low, 0.00001)
     body_strength = body / candle_range
     trend_strength = min(abs(fast - slow) / max(volatility, 0.00001), 1.0)
 
     if fast > slow and last.close > last.open and 48 <= momentum <= 72:
-        base_confidence = min(0.52 + trend_strength * 0.2 + body_strength * 0.18, 0.86)
-        confidence = round((base_confidence * 0.72) + (ml_score * 0.28), 2) if model.trained else round(base_confidence, 2)
+        confidence = round(min(0.52 + trend_strength * 0.2 + body_strength * 0.18, 0.86), 2)
         stop = round(last.close - volatility * 1.2, 5)
         risk = last.close - stop
         return Signal(
@@ -71,15 +110,11 @@ def detect_forex_signal(
             entry=round(last.close, 5),
             stop_loss=stop,
             take_profit=[round(last.close + risk * 1.5, 5), round(last.close + risk * 2.2, 5)],
-            reason=signal_reasons(["tendência curta compradora", "momentum saudável", "stop baseado em ATR"], model.trained, ml_score),
-            ml_score=ml_score,
-            ml_trained=model.trained,
+            reason=["tendência curta compradora", "momentum saudável", "stop baseado em ATR"],
         )
 
     if fast < slow and last.close < last.open and 28 <= momentum <= 52:
-        base_confidence = min(0.52 + trend_strength * 0.2 + body_strength * 0.18, 0.86)
-        sell_ml_score = 1 - ml_score if model.trained else ml_score
-        confidence = round((base_confidence * 0.72) + (sell_ml_score * 0.28), 2) if model.trained else round(base_confidence, 2)
+        confidence = round(min(0.52 + trend_strength * 0.2 + body_strength * 0.18, 0.86), 2)
         stop = round(last.close + volatility * 1.2, 5)
         risk = stop - last.close
         return Signal(
@@ -90,23 +125,10 @@ def detect_forex_signal(
             entry=round(last.close, 5),
             stop_loss=stop,
             take_profit=[round(last.close - risk * 1.5, 5), round(last.close - risk * 2.2, 5)],
-            reason=signal_reasons(["tendência curta vendedora", "momentum saudável", "stop baseado em ATR"], model.trained, sell_ml_score),
-            ml_score=sell_ml_score,
-            ml_trained=model.trained,
+            reason=["tendência curta vendedora", "momentum saudável", "stop baseado em ATR"],
         )
 
-    return Signal(
-        symbol,
-        timeframe,
-        "NO_TRADE",
-        0.0,
-        None,
-        None,
-        [],
-        signal_reasons(["sem vantagem estatística clara"], model.trained, ml_score),
-        ml_score=ml_score,
-        ml_trained=model.trained,
-    )
+    return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["sem vantagem estatística clara"])
 
 
 def signal_reasons(reasons: list[str], trained: bool, score: float) -> list[str]:

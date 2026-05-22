@@ -152,7 +152,8 @@ button:hover {
 }
 
 .signal-grid,
-.metrics {
+.metrics,
+.validation-grid {
   display: grid;
   gap: 12px;
 }
@@ -167,6 +168,41 @@ button:hover {
   border: 1px solid rgba(238, 244, 239, 0.1);
   border-radius: 8px;
   background: rgba(238, 244, 239, 0.06);
+}
+
+.validation-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.validation-grid div {
+  min-height: 104px;
+  padding: 16px;
+  border: 1px solid rgba(238, 244, 239, 0.1);
+  border-radius: 8px;
+  background: rgba(238, 244, 239, 0.06);
+}
+
+.validation-grid span {
+  color: #9fb4aa;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.validation-grid strong {
+  display: block;
+  margin: 10px 0 4px;
+  font-size: 1.25rem;
+}
+
+.validation-grid small {
+  color: #9fb4aa;
+}
+
+.validation-note {
+  margin: 12px 0 0;
+  color: #cbd8d0;
+  line-height: 1.5;
 }
 
 .signal-grid strong,
@@ -325,6 +361,10 @@ input[type="file"] {
 
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .validation-grid {
+    grid-template-columns: 1fr;
   }
 }
 

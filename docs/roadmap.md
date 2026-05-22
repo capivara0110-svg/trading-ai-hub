@@ -12,14 +12,15 @@
 - [x] Criar importacao de CSV pelo painel.
 - [x] Permitir selecionar dataset ativo.
 - [x] Criar primeiro score de machine learning.
+- [x] Criar validacao fora da amostra.
 - [x] Preparar deploy no Railway.
 
 ## MVP 2
 
 - [ ] Criar dataset de treino.
 - [x] Treinar modelo de classificação inicial.
+- [x] Comparar regra-base contra filtro de IA fora da amostra.
 - [ ] Evoluir modelo com scikit-learn.
-- [ ] Comparar IA contra regra-base.
 - [ ] Salvar modelo versionado.
 - [ ] Expor endpoint `/signals/latest`.
 

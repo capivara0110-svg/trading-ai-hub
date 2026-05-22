@@ -16,12 +16,13 @@ from packages.strategy_core.datasets import DatasetStore
 from packages.strategy_core.datasets import Dataset
 from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.signals import detect_forex_signal
+from packages.strategy_core.validation import run_out_of_sample_validation
 
 
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -76,6 +77,11 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         if parsed.path == "/ml/status":
             candles = load_candles(DATASETS.active_path())
             self.send_json(train_signal_quality_model(candles).to_dict())
+            return
+
+        if parsed.path == "/ml/validation":
+            candles = load_candles(DATASETS.active_path())
+            self.send_json(run_out_of_sample_validation(candles).to_dict())
             return
 
         if self.send_static(parsed.path):

@@ -38,6 +38,7 @@ python main.py
 - `/signals/latest`: ultimo sinal calculado.
 - `/backtest`: resultado do backtest atual.
 - `/ml/status`: status do treino de machine learning.
+- `/ml/validation`: comparacao fora da amostra entre regra-base e filtro de IA.
 
 ## Observacao Importante
 

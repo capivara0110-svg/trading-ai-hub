@@ -127,6 +127,7 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/signals/latest`
 - `http://127.0.0.1:8765/backtest`
 - `http://127.0.0.1:8765/ml/status`
+- `http://127.0.0.1:8765/ml/validation`
 
 Tambem e possivel simular o ambiente do Railway usando uma porta dinamica:
 

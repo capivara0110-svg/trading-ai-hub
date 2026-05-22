@@ -70,6 +70,16 @@ O projeto inclui um dataset diario de EUR/USD baixado via Yahoo Finance Chart AP
 
 Esse historico e util para desenvolver o pipeline, mas a validacao comercial deve ser feita depois com dados do broker/MT5 e custos reais de spread/slippage.
 
+## Validacao Fora da Amostra
+
+O endpoint `/ml/validation` separa o historico em treino e teste por ordem temporal:
+
+- primeiros 70% dos candles: treino
+- ultimos 30%: teste
+- compara regra-base contra regra filtrada por score de IA
+
+O objetivo e medir se a IA melhora qualidade do sinal fora do trecho em que foi treinada.
+
 ## Regras de Segurança
 
 - Ignorar sinal com confiança abaixo do mínimo configurado.
