@@ -2,12 +2,14 @@
 
 ## MVP 1
 
-- [ ] Definir primeiro mercado: Forex, mini índice ou ambos.
+- [x] Definir primeiro mercado: Forex.
 - [ ] Definir plataforma: MT5, Profit, TradingView ou CSV manual.
-- [ ] Criar importador de candles CSV.
-- [ ] Criar cálculo de indicadores.
-- [ ] Criar uma estratégia-base simples.
-- [ ] Criar backtest.
+- [x] Criar importador de candles CSV.
+- [x] Criar cálculo de indicadores.
+- [x] Criar uma estratégia-base simples.
+- [x] Criar backtest inicial.
+- [x] Criar painel web inicial.
+- [x] Preparar deploy no Railway.
 
 ## MVP 2
 

@@ -33,7 +33,7 @@ python -m apps.api.main
 ## Rotas
 
 - `/`: painel web.
-- `/health`: status da API.
+- `/health`: status da API, versao e dataset atual.
 - `/signals/latest`: ultimo sinal calculado.
 - `/backtest`: resultado do backtest atual.
 

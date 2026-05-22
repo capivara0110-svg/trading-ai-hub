@@ -16,6 +16,14 @@
         <div class="status" id="api-status">Conectando</div>
       </header>
 
+      <section class="notice" aria-label="Aviso de risco">
+        <strong>Ambiente experimental</strong>
+        <span>
+          Sinais, lucro e acerto abaixo usam dados de amostra/backtest. Nao sao
+          recomendacao financeira nem garantia de resultado real.
+        </span>
+      </section>
+
       <section class="signal-board" aria-label="Sinal atual">
         <div class="signal-main">
           <span class="label">Sinal atual</span>
@@ -70,6 +78,16 @@
           <span>Drawdown</span>
           <strong id="metric-drawdown">--</strong>
           <small>maior queda em pips</small>
+        </article>
+        <article>
+          <span>Trades</span>
+          <strong id="metric-trades">--</strong>
+          <small>operacoes simuladas</small>
+        </article>
+        <article>
+          <span>Profit factor</span>
+          <strong id="metric-profit-factor">--</strong>
+          <small>ganho bruto / perda bruta</small>
         </article>
       </section>
 

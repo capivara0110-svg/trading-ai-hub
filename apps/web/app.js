@@ -17,7 +17,9 @@ async function getJson(path) {
 }
 
 function renderSignal(signal) {
-  document.querySelector("#signal-side").textContent = signal.side || "--";
+  const sideEl = document.querySelector("#signal-side");
+  sideEl.textContent = signal.side || "--";
+  sideEl.className = `side-${String(signal.side || "none").toLowerCase()}`;
   document.querySelector("#signal-symbol").textContent = signal.symbol || "--";
   document.querySelector("#signal-timeframe").textContent = signal.timeframe || "--";
   document.querySelector("#signal-confidence").textContent = formatPercent(signal.confidence);
@@ -36,6 +38,8 @@ function renderBacktest(backtest) {
   document.querySelector("#metric-winrate").textContent = formatPercent(backtest.winRate);
   document.querySelector("#metric-payoff").textContent = Number(backtest.payoff || 0).toFixed(2);
   document.querySelector("#metric-drawdown").textContent = `${Number(backtest.maxDrawdownPips || 0).toFixed(1)}`;
+  document.querySelector("#metric-trades").textContent = Number(backtest.totalTrades || 0);
+  document.querySelector("#metric-profit-factor").textContent = Number(backtest.profitFactor || 0).toFixed(2);
 
   const tradesBody = document.querySelector("#trades-body");
   const trades = Array.isArray(backtest.trades) ? backtest.trades : [];

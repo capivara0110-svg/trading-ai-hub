@@ -144,3 +144,5 @@ Guia:
 ## Estado Atual
 
 O primeiro protótipo está focado em Forex, usando EUR/USD M5 como amostra. Ele ainda não usa machine learning real; por enquanto existe uma regra-base com média móvel, RSI e ATR. Essa regra-base é necessária para depois treinar a IA como filtro de qualidade dos sinais.
+
+Antes de vender acesso, o sistema ainda precisa de dados reais, backtest com custos/spread, auditoria de sinais e validação em conta demo.

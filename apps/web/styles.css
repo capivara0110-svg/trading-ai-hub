@@ -78,6 +78,24 @@ button {
   padding: 10px 14px;
 }
 
+.notice {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 180, 112, 0.28);
+  border-radius: 8px;
+  background: rgba(116, 70, 34, 0.28);
+  color: #f4d8bd;
+  line-height: 1.45;
+}
+
+.notice strong {
+  flex: 0 0 auto;
+  color: #ffd4a8;
+}
+
 button {
   min-height: 38px;
   padding: 0 14px;
@@ -110,9 +128,21 @@ button:hover {
 .signal-main strong {
   display: block;
   margin: 12px 0;
-  color: #55d98a;
   font-size: 3.1rem;
   line-height: 1;
+}
+
+.side-buy {
+  color: #55d98a;
+}
+
+.side-sell {
+  color: #ff8f70;
+}
+
+.side-no_trade,
+.side-none {
+  color: #cbd8d0;
 }
 
 .signal-main p {
@@ -148,7 +178,7 @@ button:hover {
 }
 
 .metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   margin-bottom: 20px;
 }
 
@@ -230,6 +260,10 @@ th {
   .signal-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 560px) {
@@ -247,6 +281,15 @@ th {
   }
 
   .signal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .notice {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .metrics {
     grid-template-columns: 1fr;
   }
 }
