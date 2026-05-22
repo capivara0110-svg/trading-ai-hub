@@ -34,9 +34,12 @@ python main.py
 
 - `/`: painel web.
 - `/health`: status da API, versao e dataset atual.
+- `/datasets`: historicos cadastrados.
 - `/signals/latest`: ultimo sinal calculado.
 - `/backtest`: resultado do backtest atual.
 
 ## Observacao Importante
 
 O Railway injeta a variavel `PORT` automaticamente. A API ja usa essa porta e escuta em `0.0.0.0`, que e necessario para funcionar fora da maquina local.
+
+Uploads feitos pelo painel ficam em `data/uploads`. No Railway, esse armazenamento local pode ser perdido em redeploy. Para produto real, a proxima etapa e trocar isso por banco ou storage persistente, como Postgres ou volume persistente.

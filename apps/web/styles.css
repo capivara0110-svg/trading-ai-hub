@@ -192,7 +192,7 @@ button:hover {
 }
 
 .workspace {
-  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.8fr);
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr);
 }
 
 .panel {
@@ -205,6 +205,11 @@ button:hover {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 18px;
+}
+
+.panel-heading.compact {
+  margin-top: 20px;
+  margin-bottom: 12px;
 }
 
 .table-wrap {
@@ -239,7 +244,10 @@ th {
 }
 
 .risk-panel p,
-.risk-panel li {
+.risk-panel li,
+.import-panel label,
+.import-panel p,
+.dataset-button small {
   color: #cbd8d0;
   line-height: 1.55;
 }
@@ -247,6 +255,60 @@ th {
 .risk-panel ul {
   margin-bottom: 0;
   padding-left: 18px;
+}
+
+form {
+  display: grid;
+  gap: 12px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(238, 244, 239, 0.16);
+  border-radius: 6px;
+  background: rgba(238, 244, 239, 0.08);
+  color: #eef4ef;
+  padding: 0 10px;
+}
+
+input[type="file"] {
+  padding: 9px 10px;
+}
+
+.form-message {
+  min-height: 24px;
+  margin: 10px 0 0;
+}
+
+.dataset-list {
+  margin-top: 6px;
+}
+
+#datasets-list {
+  display: grid;
+  gap: 8px;
+}
+
+.dataset-button {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  min-height: 56px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.dataset-button.active {
+  border-color: rgba(85, 217, 138, 0.7);
+  background: rgba(85, 217, 138, 0.12);
 }
 
 @media (max-width: 900px) {

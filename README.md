@@ -123,6 +123,7 @@ python main.py
 Endpoints iniciais:
 
 - `http://127.0.0.1:8765/health`
+- `http://127.0.0.1:8765/datasets`
 - `http://127.0.0.1:8765/signals/latest`
 - `http://127.0.0.1:8765/backtest`
 
@@ -146,3 +147,23 @@ Guia:
 O primeiro protótipo está focado em Forex, usando EUR/USD M5 como amostra. Ele ainda não usa machine learning real; por enquanto existe uma regra-base com média móvel, RSI e ATR. Essa regra-base é necessária para depois treinar a IA como filtro de qualidade dos sinais.
 
 Antes de vender acesso, o sistema ainda precisa de dados reais, backtest com custos/spread, auditoria de sinais e validação em conta demo.
+
+## Importando Dados Reais
+
+No painel web, use a area `Importar CSV` para enviar um historico exportado do MT5 ou outra plataforma.
+
+Formato esperado:
+
+```csv
+time,open,high,low,close,volume
+2026-05-18 09:00:00,1.08420,1.08462,1.08402,1.08450,1200
+```
+
+Tambem aceita o formato comum exportado pelo MT5:
+
+```csv
+<DATE>	<TIME>	<OPEN>	<HIGH>	<LOW>	<CLOSE>	<TICKVOL>
+2026.05.18	09:00:00	1.08420	1.08462	1.08402	1.08450	1200
+```
+
+O CSV precisa ter pelo menos 25 candles. Apos importar, o dataset vira o ativo e o painel passa a calcular sinal/backtest usando esse historico.

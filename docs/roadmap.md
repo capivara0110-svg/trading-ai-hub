@@ -9,6 +9,8 @@
 - [x] Criar uma estratégia-base simples.
 - [x] Criar backtest inicial.
 - [x] Criar painel web inicial.
+- [x] Criar importacao de CSV pelo painel.
+- [x] Permitir selecionar dataset ativo.
 - [x] Preparar deploy no Railway.
 
 ## MVP 2

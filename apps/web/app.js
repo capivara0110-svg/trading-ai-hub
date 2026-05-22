@@ -1,5 +1,7 @@
 const statusEl = document.querySelector("#api-status");
 const refreshButton = document.querySelector("#refresh-button");
+const importForm = document.querySelector("#import-form");
+const importMessage = document.querySelector("#import-message");
 
 const formatNumber = (value, digits = 5) => {
   if (value === null || value === undefined) return "--";
@@ -14,6 +16,19 @@ async function getJson(path) {
     throw new Error(`Falha ao carregar ${path}`);
   }
   return response.json();
+}
+
+async function postJson(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || `Falha ao enviar ${path}`);
+  }
+  return data;
 }
 
 function renderSignal(signal) {
@@ -31,6 +46,31 @@ function renderSignal(signal) {
   document.querySelector("#signal-reason").textContent = Array.isArray(signal.reason)
     ? signal.reason.join(" | ")
     : "Sem motivo informado.";
+}
+
+function renderDatasets(payload) {
+  const list = document.querySelector("#datasets-list");
+  const datasets = Array.isArray(payload.datasets) ? payload.datasets : [];
+  if (!datasets.length) {
+    list.innerHTML = "<p>Nenhum dataset encontrado.</p>";
+    return;
+  }
+
+  list.innerHTML = datasets
+    .map((dataset) => `
+      <button class="dataset-button ${dataset.active ? "active" : ""}" data-id="${dataset.id}" type="button">
+        <span>${dataset.symbol} ${dataset.timeframe}</span>
+        <small>${dataset.candles} candles</small>
+      </button>
+    `)
+    .join("");
+
+  list.querySelectorAll(".dataset-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await postJson("/datasets/select", { id: button.dataset.id });
+      await loadDashboard();
+    });
+  });
 }
 
 function renderBacktest(backtest) {
@@ -69,12 +109,14 @@ function renderBacktest(backtest) {
 async function loadDashboard() {
   statusEl.textContent = "Atualizando";
   try {
-    const [signal, backtest] = await Promise.all([
+    const [signal, backtest, datasets] = await Promise.all([
       getJson("/signals/latest"),
       getJson("/backtest"),
+      getJson("/datasets"),
     ]);
     renderSignal(signal);
     renderBacktest(backtest);
+    renderDatasets(datasets);
     statusEl.textContent = "Online";
   } catch (error) {
     statusEl.textContent = "Erro na API";
@@ -82,5 +124,30 @@ async function loadDashboard() {
   }
 }
 
+async function handleImport(event) {
+  event.preventDefault();
+  const file = document.querySelector("#csv-input").files[0];
+  if (!file) {
+    importMessage.textContent = "Selecione um arquivo CSV.";
+    return;
+  }
+
+  importMessage.textContent = "Importando...";
+  try {
+    await postJson("/datasets/import", {
+      symbol: document.querySelector("#symbol-input").value,
+      timeframe: document.querySelector("#timeframe-input").value,
+      content: await file.text(),
+    });
+    importForm.reset();
+    document.querySelector("#symbol-input").value = "EURUSD";
+    importMessage.textContent = "CSV importado e ativado.";
+    await loadDashboard();
+  } catch (error) {
+    importMessage.textContent = error.message;
+  }
+}
+
 refreshButton.addEventListener("click", loadDashboard);
+importForm.addEventListener("submit", handleImport);
 loadDashboard();
