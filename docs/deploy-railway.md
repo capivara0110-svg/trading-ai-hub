@@ -43,6 +43,7 @@ python main.py
 - `/alerts/telegram/test`: envia mensagem de teste.
 - `/alerts/telegram/latest-signal`: envia o sinal atual.
 - `/alerts/telegram/check-latest`: envia apenas sinal valido e ainda nao enviado.
+- `/jobs/check-alerts`: job protegido para cron de alertas.
 
 ## Observacao Importante
 
@@ -57,3 +58,4 @@ Para alertas em grupo/canal:
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 - `TELEGRAM_MIN_CONFIDENCE` opcional, padrao `0.70`
+- `ALERT_JOB_SECRET` para proteger `/jobs/check-alerts`

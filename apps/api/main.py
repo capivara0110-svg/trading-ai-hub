@@ -27,7 +27,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -139,20 +139,15 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/alerts/telegram/check-latest":
-                dataset = DATASETS.active_dataset()
-                candles = load_candles(DATASETS.active_path())
-                signal = detect_forex_signal(
-                    candles,
-                    symbol=dataset.symbol if dataset else "EURUSD",
-                    timeframe=dataset.timeframe if dataset else "M5",
-                )
-                should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
-                if not should_send:
-                    self.send_json({"sent": False, "reason": reason, "signal": signal.to_dict()})
+                self.send_json(check_and_send_latest_alert())
+                return
+
+            if parsed.path == "/jobs/check-alerts":
+                payload = self.read_json(max_size=2_000)
+                if not self.authorized_job(payload):
+                    self.send_json({"error": "job nao autorizado"}, status=401)
                     return
-                result = send_telegram_message(format_signal_message(signal))
-                mark_signal_sent(signal, TELEGRAM_ALERT_STATE)
-                self.send_json({"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict()})
+                self.send_json(check_and_send_latest_alert())
                 return
 
             self.send_json({"error": "route not found"}, status=404)
@@ -170,6 +165,13 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             raise ValueError("JSON invalido")
         return payload
+
+    def authorized_job(self, payload: dict[str, object]) -> bool:
+        expected = os.getenv("ALERT_JOB_SECRET")
+        if not expected:
+            raise ValueError("ALERT_JOB_SECRET nao configurado")
+        provided = self.headers.get("X-Job-Secret") or str(payload.get("secret") or "")
+        return provided == expected
 
     def send_json(self, payload: dict[str, object], status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
@@ -222,6 +224,26 @@ def run_server() -> None:
     server = HTTPServer((host, port), TradingApiHandler)
     print(f"Trading AI Hub API running at http://{host}:{port}", flush=True)
     server.serve_forever()
+
+
+def latest_signal() -> object:
+    dataset = DATASETS.active_dataset()
+    candles = load_candles(DATASETS.active_path())
+    return detect_forex_signal(
+        candles,
+        symbol=dataset.symbol if dataset else "EURUSD",
+        timeframe=dataset.timeframe if dataset else "M5",
+    )
+
+
+def check_and_send_latest_alert() -> dict[str, object]:
+    signal = latest_signal()
+    should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
+    if not should_send:
+        return {"sent": False, "reason": reason, "signal": signal.to_dict()}
+    result = send_telegram_message(format_signal_message(signal))
+    mark_signal_sent(signal, TELEGRAM_ALERT_STATE)
+    return {"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict()}
 
 
 if __name__ == "__main__":
