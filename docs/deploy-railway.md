@@ -37,6 +37,7 @@ python main.py
 - `/datasets`: historicos cadastrados.
 - `/signals/latest`: ultimo sinal calculado.
 - `/backtest`: resultado do backtest atual.
+- `/ml/status`: status do treino de machine learning.
 
 ## Observacao Importante
 

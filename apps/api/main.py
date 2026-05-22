@@ -13,14 +13,22 @@ sys.path.insert(0, str(ROOT))
 from packages.strategy_core.backtest import run_backtest
 from packages.strategy_core.data import load_candles
 from packages.strategy_core.datasets import DatasetStore
+from packages.strategy_core.datasets import Dataset
 from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.signals import detect_forex_signal
 
 
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
+EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
 APP_VERSION = "0.4.0"
-DATASETS = DatasetStore(ROOT, DEFAULT_DATASET)
+DATASETS = DatasetStore(
+    ROOT,
+    DEFAULT_DATASET,
+    bundled_datasets=[
+        Dataset("eurusd-d1-yahoo", "EURUSD", "D1", EURUSD_D1_DATASET, 0),
+    ],
+)
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -49,8 +57,15 @@ class TradingApiHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/signals/latest":
+            dataset = DATASETS.active_dataset()
             candles = load_candles(DATASETS.active_path())
-            self.send_json(detect_forex_signal(candles).to_dict())
+            self.send_json(
+                detect_forex_signal(
+                    candles,
+                    symbol=dataset.symbol if dataset else "EURUSD",
+                    timeframe=dataset.timeframe if dataset else "M5",
+                ).to_dict()
+            )
             return
 
         if parsed.path == "/backtest":

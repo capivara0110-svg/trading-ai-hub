@@ -64,6 +64,12 @@ A primeira versao usa um classificador leve por similaridade:
 
 Esse modelo e apenas a primeira camada de IA. A proxima evolucao deve usar scikit-learn com validacao fora da amostra.
 
+## Historico Inicial
+
+O projeto inclui um dataset diario de EUR/USD baixado via Yahoo Finance Chart API (`EURUSD=X`) para permitir treino inicial com mais amostras.
+
+Esse historico e util para desenvolver o pipeline, mas a validacao comercial deve ser feita depois com dados do broker/MT5 e custos reais de spread/slippage.
+
 ## Regras de Segurança
 
 - Ignorar sinal com confiança abaixo do mínimo configurado.

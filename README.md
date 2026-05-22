@@ -153,6 +153,24 @@ Antes de vender acesso, o sistema ainda precisa de dados reais, backtest com cus
 
 No painel web, use a area `Importar CSV` para enviar um historico exportado do MT5 ou outra plataforma.
 
+O repositorio tambem inclui um historico diario EUR/USD baixado do Yahoo Finance para treino inicial:
+
+```text
+data/forex/eurusd_d1_yahoo.csv
+```
+
+Para atualizar esse historico:
+
+```powershell
+python scripts/download_yahoo_history.py --symbol EURUSD=X --from-date 2020-01-01 --output data/forex/eurusd_d1_yahoo.csv
+```
+
+Tambem existe um downloader para Stooq, mas a fonte pode exigir API key:
+
+```powershell
+python scripts/download_stooq_history.py --symbol eurusd --from-date 20200101 --apikey SUA_CHAVE
+```
+
 Formato esperado:
 
 ```csv

@@ -28,19 +28,29 @@ class Dataset:
 
 
 class DatasetStore:
-    def __init__(self, root: Path, default_dataset: Path) -> None:
+    def __init__(self, root: Path, default_dataset: Path, bundled_datasets: list[Dataset] | None = None) -> None:
         self.root = root
         self.uploads = root / "data" / "uploads"
         self.state_path = self.uploads / "state.json"
         self.default_dataset = default_dataset
+        self.bundled_datasets = bundled_datasets or []
         self.uploads.mkdir(parents=True, exist_ok=True)
 
     def active_path(self) -> Path:
+        dataset = self.active_dataset()
+        if dataset is not None and dataset.path.exists():
+            return dataset.path
+        return self.default_dataset
+
+    def active_dataset(self) -> Dataset | None:
         active_id = self.active_id()
         if not active_id:
-            return self.default_dataset
+            return self.get("sample-eurusd-m5")
+        bundled = self.get(active_id)
+        if bundled is not None:
+            return bundled
         dataset_path = self.uploads / f"{active_id}.csv"
-        return dataset_path if dataset_path.exists() else self.default_dataset
+        return self.dataset_from_path(dataset_path) if dataset_path.exists() else self.get("sample-eurusd-m5")
 
     def active_id(self) -> str | None:
         if not self.state_path.exists():
@@ -62,6 +72,17 @@ class DatasetStore:
                 candles=len(load_candles(self.default_dataset)),
             )
         ]
+        datasets.extend(
+            Dataset(
+                id=dataset.id,
+                symbol=dataset.symbol,
+                timeframe=dataset.timeframe,
+                path=dataset.path,
+                candles=len(load_candles(dataset.path)),
+            )
+            for dataset in self.bundled_datasets
+            if dataset.path.exists()
+        )
         for path in sorted(self.uploads.glob("*.csv")):
             if path.name == self.state_path.name:
                 continue
