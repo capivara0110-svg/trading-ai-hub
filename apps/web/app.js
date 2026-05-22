@@ -6,6 +6,9 @@ const telegramTestButton = document.querySelector("#telegram-test-button");
 const telegramSignalButton = document.querySelector("#telegram-signal-button");
 const telegramCheckButton = document.querySelector("#telegram-check-button");
 const telegramMessage = document.querySelector("#telegram-message");
+const alphaForm = document.querySelector("#alpha-form");
+const alphaMessage = document.querySelector("#alpha-message");
+const alphaRefreshButton = document.querySelector("#alpha-refresh-button");
 
 const formatNumber = (value, digits = 5) => {
   if (value === null || value === undefined) return "--";
@@ -84,6 +87,13 @@ function renderTelegramStatus(status) {
   telegramCheckButton.disabled = !status.configured;
 }
 
+function renderAlphaStatus(status) {
+  document.querySelector("#alpha-status").textContent = status.configured
+    ? "Alpha Vantage configurada no ambiente."
+    : "Configure ALPHA_VANTAGE_API_KEY no Railway.";
+  alphaRefreshButton.disabled = !status.configured;
+}
+
 function renderDatasets(payload) {
   const list = document.querySelector("#datasets-list");
   const datasets = Array.isArray(payload.datasets) ? payload.datasets : [];
@@ -145,13 +155,14 @@ function renderBacktest(backtest) {
 async function loadDashboard() {
   statusEl.textContent = "Atualizando";
   try {
-    const [signal, backtest, datasets, model, validation, telegram] = await Promise.all([
+    const [signal, backtest, datasets, model, validation, telegram, alpha] = await Promise.all([
       getJson("/signals/latest"),
       getJson("/backtest"),
       getJson("/datasets"),
       getJson("/ml/status"),
       getJson("/ml/validation"),
       getJson("/alerts/telegram/status"),
+      getJson("/market/alpha-vantage/status"),
     ]);
     renderSignal(signal);
     renderBacktest(backtest);
@@ -159,10 +170,27 @@ async function loadDashboard() {
     renderMlStatus(model);
     renderValidation(validation);
     renderTelegramStatus(telegram);
+    renderAlphaStatus(alpha);
     statusEl.textContent = "Online";
   } catch (error) {
     statusEl.textContent = "Erro na API";
     console.error(error);
+  }
+}
+
+async function handleAlphaRefresh(event) {
+  event.preventDefault();
+  alphaMessage.textContent = "Atualizando candles...";
+  try {
+    await postJson("/market/alpha-vantage/refresh", {
+      symbol: document.querySelector("#alpha-symbol-input").value,
+      timeframe: document.querySelector("#alpha-timeframe-input").value,
+      alert: document.querySelector("#alpha-alert-input").checked,
+    });
+    alphaMessage.textContent = "Candles atualizados.";
+    await loadDashboard();
+  } catch (error) {
+    alphaMessage.textContent = error.message;
   }
 }
 
@@ -204,6 +232,7 @@ async function handleImport(event) {
 
 refreshButton.addEventListener("click", loadDashboard);
 importForm.addEventListener("submit", handleImport);
+alphaForm.addEventListener("submit", handleAlphaRefresh);
 telegramTestButton.addEventListener("click", () => sendTelegram("/alerts/telegram/test", "Mensagem de teste enviada."));
 telegramSignalButton.addEventListener("click", () => sendTelegram("/alerts/telegram/latest-signal", "Sinal enviado ao Telegram."));
 telegramCheckButton.addEventListener("click", () => sendTelegram("/alerts/telegram/check-latest", "Alerta enviado ao Telegram."));

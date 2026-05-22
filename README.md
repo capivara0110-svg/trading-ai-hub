@@ -200,6 +200,7 @@ TELEGRAM_CHAT_ID=id_do_grupo_ou_canal
 TELEGRAM_MIN_CONFIDENCE=0.70
 ALERT_JOB_SECRET=uma_senha_grande_para_cron
 MARKET_INGEST_SECRET=uma_senha_grande_para_receber_candles
+ALPHA_VANTAGE_API_KEY=sua_chave_alpha_vantage
 ```
 
 Depois use o painel para testar a conexao e enviar o sinal atual ao grupo.
@@ -218,3 +219,9 @@ Header: X-Job-Secret: valor_do_ALERT_JOB_SECRET
 Para receber candles de MT5, API de corretora ou script externo:
 
 [docs/market-ingest.md](docs/market-ingest.md)
+
+Tambem e possivel atualizar candles de Forex pela Alpha Vantage no painel ou pelo endpoint:
+
+```text
+POST /market/alpha-vantage/refresh
+```

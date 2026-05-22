@@ -287,7 +287,9 @@ th {
 .risk-panel p,
 .risk-panel li,
 .alerts-panel p,
+.market-panel p,
 .import-panel label,
+.market-panel label,
 .import-panel p,
 .dataset-button small {
   color: #cbd8d0;
@@ -335,6 +337,17 @@ select {
 
 input[type="file"] {
   padding: 9px 10px;
+}
+
+.checkbox-label {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.checkbox-label input {
+  min-height: 0;
+  width: auto;
 }
 
 .form-message {

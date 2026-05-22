@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from packages.strategy_core.backtest import run_backtest
+from packages.strategy_core.alpha_vantage import alpha_vantage_status
+from packages.strategy_core.alpha_vantage import fetch_fx_intraday
 from packages.strategy_core.data import load_candles
 from packages.strategy_core.datasets import DatasetStore
 from packages.strategy_core.datasets import Dataset
@@ -28,7 +30,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.8.0"
+APP_VERSION = "0.9.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -95,6 +97,10 @@ class TradingApiHandler(BaseHTTPRequestHandler):
             self.send_json(telegram_config_status())
             return
 
+        if parsed.path == "/market/alpha-vantage/status":
+            self.send_json(alpha_vantage_status())
+            return
+
         if self.send_static(parsed.path):
             return
 
@@ -130,6 +136,22 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     timeframe=str(payload.get("timeframe") or ""),
                     candles=candles_from_payload(payload.get("candles")),
                 )
+                response: dict[str, object] = {"dataset": dataset.to_dict(DATASETS.active_id())}
+                if bool(payload.get("alert")):
+                    response["alert"] = check_and_send_latest_alert()
+                self.send_json(response, status=201)
+                return
+
+            if parsed.path == "/market/alpha-vantage/refresh":
+                payload = self.read_json(max_size=20_000)
+                if not self.authorized_market_ingest(payload):
+                    self.send_json({"error": "ingestao nao autorizada"}, status=401)
+                    return
+                symbol = str(payload.get("symbol") or "EURUSD")
+                timeframe = str(payload.get("timeframe") or "M5")
+                outputsize = str(payload.get("outputsize") or "compact")
+                candles = fetch_fx_intraday(symbol, timeframe, outputsize)
+                dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
                 response: dict[str, object] = {"dataset": dataset.to_dict(DATASETS.active_id())}
                 if bool(payload.get("alert")):
                     response["alert"] = check_and_send_latest_alert()
