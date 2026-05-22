@@ -4,6 +4,7 @@ const importForm = document.querySelector("#import-form");
 const importMessage = document.querySelector("#import-message");
 const telegramTestButton = document.querySelector("#telegram-test-button");
 const telegramSignalButton = document.querySelector("#telegram-signal-button");
+const telegramCheckButton = document.querySelector("#telegram-check-button");
 const telegramMessage = document.querySelector("#telegram-message");
 
 const formatNumber = (value, digits = 5) => {
@@ -80,6 +81,7 @@ function renderTelegramStatus(status) {
   document.querySelector("#telegram-status").textContent = text;
   telegramTestButton.disabled = !status.configured;
   telegramSignalButton.disabled = !status.configured;
+  telegramCheckButton.disabled = !status.configured;
 }
 
 function renderDatasets(payload) {
@@ -167,8 +169,10 @@ async function loadDashboard() {
 async function sendTelegram(path, successMessage) {
   telegramMessage.textContent = "Enviando...";
   try {
-    await postJson(path, {});
-    telegramMessage.textContent = successMessage;
+    const response = await postJson(path, {});
+    telegramMessage.textContent = response.sent === false
+      ? response.reason
+      : successMessage;
   } catch (error) {
     telegramMessage.textContent = error.message;
   }
@@ -202,4 +206,5 @@ refreshButton.addEventListener("click", loadDashboard);
 importForm.addEventListener("submit", handleImport);
 telegramTestButton.addEventListener("click", () => sendTelegram("/alerts/telegram/test", "Mensagem de teste enviada."));
 telegramSignalButton.addEventListener("click", () => sendTelegram("/alerts/telegram/latest-signal", "Sinal enviado ao Telegram."));
+telegramCheckButton.addEventListener("click", () => sendTelegram("/alerts/telegram/check-latest", "Alerta enviado ao Telegram."));
 loadDashboard();

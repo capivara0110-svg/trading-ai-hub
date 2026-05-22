@@ -17,7 +17,9 @@ from packages.strategy_core.datasets import Dataset
 from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.signals import detect_forex_signal
 from packages.strategy_core.telegram_alerts import format_signal_message
+from packages.strategy_core.telegram_alerts import mark_signal_sent
 from packages.strategy_core.telegram_alerts import send_telegram_message
+from packages.strategy_core.telegram_alerts import should_send_signal
 from packages.strategy_core.telegram_alerts import telegram_config_status
 from packages.strategy_core.validation import run_out_of_sample_validation
 
@@ -33,6 +35,7 @@ DATASETS = DatasetStore(
         Dataset("eurusd-d1-yahoo", "EURUSD", "D1", EURUSD_D1_DATASET, 0),
     ],
 )
+TELEGRAM_ALERT_STATE = ROOT / "data" / "uploads" / "telegram_alert_state.json"
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -132,6 +135,23 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     timeframe=dataset.timeframe if dataset else "M5",
                 )
                 result = send_telegram_message(format_signal_message(signal))
+                self.send_json({"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict()})
+                return
+
+            if parsed.path == "/alerts/telegram/check-latest":
+                dataset = DATASETS.active_dataset()
+                candles = load_candles(DATASETS.active_path())
+                signal = detect_forex_signal(
+                    candles,
+                    symbol=dataset.symbol if dataset else "EURUSD",
+                    timeframe=dataset.timeframe if dataset else "M5",
+                )
+                should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
+                if not should_send:
+                    self.send_json({"sent": False, "reason": reason, "signal": signal.to_dict()})
+                    return
+                result = send_telegram_message(format_signal_message(signal))
+                mark_signal_sent(signal, TELEGRAM_ALERT_STATE)
                 self.send_json({"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict()})
                 return
 

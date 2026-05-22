@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -58,3 +59,46 @@ def send_telegram_message(text: str) -> dict[str, object]:
     )
     with urlopen(request, timeout=20) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def should_send_signal(signal: Signal, state_path: Path) -> tuple[bool, str]:
+    min_confidence = float(os.getenv("TELEGRAM_MIN_CONFIDENCE", "0.70"))
+    if signal.side == "NO_TRADE":
+        return False, "Sem sinal operacional."
+    if signal.confidence < min_confidence:
+        return False, f"Confianca abaixo do minimo ({round(min_confidence * 100)}%)."
+
+    key = signal_key(signal)
+    last_key = read_last_signal_key(state_path)
+    if key == last_key:
+        return False, "Sinal ja enviado anteriormente."
+    return True, key
+
+
+def mark_signal_sent(signal: Signal, state_path: Path) -> None:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({"lastSignalKey": signal_key(signal)}, indent=2), encoding="utf-8")
+
+
+def signal_key(signal: Signal) -> str:
+    return "|".join(
+        [
+            signal.symbol,
+            signal.timeframe,
+            signal.side,
+            str(signal.entry),
+            str(signal.stop_loss),
+            ",".join(str(target) for target in signal.take_profit),
+        ]
+    )
+
+
+def read_last_signal_key(state_path: Path) -> str | None:
+    if not state_path.exists():
+        return None
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    value = payload.get("lastSignalKey")
+    return str(value) if value else None

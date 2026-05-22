@@ -196,6 +196,9 @@ Configure no Railway:
 ```text
 TELEGRAM_BOT_TOKEN=token_do_bot
 TELEGRAM_CHAT_ID=id_do_grupo_ou_canal
+TELEGRAM_MIN_CONFIDENCE=0.70
 ```
 
 Depois use o painel para testar a conexao e enviar o sinal atual ao grupo.
+
+O botao `Verificar e alertar` so envia se houver sinal operacional, se a confianca for maior que o minimo e se o mesmo sinal ainda nao tiver sido enviado.

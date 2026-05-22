@@ -301,6 +301,11 @@ th {
   margin-top: 14px;
 }
 
+.wide-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .risk-panel ul {
   margin-bottom: 0;
   padding-left: 18px;
