@@ -115,6 +115,20 @@ class DatasetStore:
         self.set_active(dataset_id)
         return self.dataset_from_path(path)
 
+    def save_candles(self, symbol: str, timeframe: str, candles: list[Candle]) -> Dataset:
+        clean_symbol = normalize_id(symbol)
+        clean_timeframe = normalize_id(timeframe)
+        if not clean_symbol or not clean_timeframe:
+            raise ValueError("Informe ativo e timeframe validos")
+        if len(candles) < 25:
+            raise ValueError("Envie pelo menos 25 candles")
+
+        dataset_id = f"{clean_symbol.lower()}-{clean_timeframe.lower()}"
+        path = self.uploads / f"{dataset_id}.csv"
+        path.write_text(normalize_csv(candles), encoding="utf-8")
+        self.set_active(dataset_id)
+        return self.dataset_from_path(path)
+
     def dataset_from_path(self, path: Path) -> Dataset:
         candles = load_candles(path)
         parts = path.stem.split("-", maxsplit=1)
@@ -197,3 +211,24 @@ def row_time(row: dict[str, str], field_map: dict[str, str]) -> str:
     if "time" in field_map:
         return str(row[field_map["time"]])
     return f"{row[field_map['date']]} {row[field_map['clock']]}"
+
+
+def candles_from_payload(rows: object) -> list[Candle]:
+    if not isinstance(rows, list):
+        raise ValueError("candles precisa ser uma lista")
+
+    candles: list[Candle] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("Cada candle precisa ser um objeto")
+        candles.append(
+            Candle(
+                time=str(row.get("time") or ""),
+                open=float(row["open"]),
+                high=float(row["high"]),
+                low=float(row["low"]),
+                close=float(row["close"]),
+                volume=float(row.get("volume") or 0),
+            )
+        )
+    return candles

@@ -13,6 +13,7 @@
 - [x] Permitir selecionar dataset ativo.
 - [x] Criar primeiro score de machine learning.
 - [x] Criar validacao fora da amostra.
+- [x] Criar endpoint para receber candles reais.
 - [x] Preparar deploy no Railway.
 
 ## MVP 2

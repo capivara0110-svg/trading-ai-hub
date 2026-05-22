@@ -14,6 +14,7 @@ from packages.strategy_core.backtest import run_backtest
 from packages.strategy_core.data import load_candles
 from packages.strategy_core.datasets import DatasetStore
 from packages.strategy_core.datasets import Dataset
+from packages.strategy_core.datasets import candles_from_payload
 from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.signals import detect_forex_signal
 from packages.strategy_core.telegram_alerts import format_signal_message
@@ -27,7 +28,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -119,6 +120,22 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 self.send_json({"dataset": dataset.to_dict(DATASETS.active_id())}, status=201)
                 return
 
+            if parsed.path == "/market/candles":
+                payload = self.read_json(max_size=2_500_000)
+                if not self.authorized_market_ingest(payload):
+                    self.send_json({"error": "ingestao nao autorizada"}, status=401)
+                    return
+                dataset = DATASETS.save_candles(
+                    symbol=str(payload.get("symbol") or ""),
+                    timeframe=str(payload.get("timeframe") or ""),
+                    candles=candles_from_payload(payload.get("candles")),
+                )
+                response: dict[str, object] = {"dataset": dataset.to_dict(DATASETS.active_id())}
+                if bool(payload.get("alert")):
+                    response["alert"] = check_and_send_latest_alert()
+                self.send_json(response, status=201)
+                return
+
             if parsed.path == "/alerts/telegram/test":
                 result = send_telegram_message(
                     "Trading AI Hub\n\nTeste de conexao Telegram realizado com sucesso.\n\nAviso: ambiente experimental."
@@ -171,6 +188,13 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         if not expected:
             raise ValueError("ALERT_JOB_SECRET nao configurado")
         provided = self.headers.get("X-Job-Secret") or str(payload.get("secret") or "")
+        return provided == expected
+
+    def authorized_market_ingest(self, payload: dict[str, object]) -> bool:
+        expected = os.getenv("MARKET_INGEST_SECRET")
+        if not expected:
+            return True
+        provided = self.headers.get("X-Market-Secret") or str(payload.get("secret") or "")
         return provided == expected
 
     def send_json(self, payload: dict[str, object], status: int = 200) -> None:

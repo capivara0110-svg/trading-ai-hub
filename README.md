@@ -129,6 +129,7 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/ml/status`
 - `http://127.0.0.1:8765/ml/validation`
 - `http://127.0.0.1:8765/alerts/telegram/status`
+- `http://127.0.0.1:8765/market/candles`
 
 Tambem e possivel simular o ambiente do Railway usando uma porta dinamica:
 
@@ -198,6 +199,7 @@ TELEGRAM_BOT_TOKEN=token_do_bot
 TELEGRAM_CHAT_ID=id_do_grupo_ou_canal
 TELEGRAM_MIN_CONFIDENCE=0.70
 ALERT_JOB_SECRET=uma_senha_grande_para_cron
+MARKET_INGEST_SECRET=uma_senha_grande_para_receber_candles
 ```
 
 Depois use o painel para testar a conexao e enviar o sinal atual ao grupo.
@@ -210,3 +212,9 @@ Para chamada automatica por cron, use:
 POST /jobs/check-alerts
 Header: X-Job-Secret: valor_do_ALERT_JOB_SECRET
 ```
+
+## Dados ao Vivo
+
+Para receber candles de MT5, API de corretora ou script externo:
+
+[docs/market-ingest.md](docs/market-ingest.md)
