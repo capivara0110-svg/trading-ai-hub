@@ -97,7 +97,7 @@ def run_server() -> None:
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8765"))
     server = HTTPServer((host, port), TradingApiHandler)
-    print(f"Trading AI Hub API running at http://{host}:{port}")
+    print(f"Trading AI Hub API running at http://{host}:{port}", flush=True)
     server.serve_forever()
 
 

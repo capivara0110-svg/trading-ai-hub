@@ -117,7 +117,7 @@ python run_demo.py
 Para subir a API local:
 
 ```powershell
-python -m apps.api.main
+python main.py
 ```
 
 Endpoints iniciais:
@@ -130,7 +130,7 @@ Tambem e possivel simular o ambiente do Railway usando uma porta dinamica:
 
 ```powershell
 $env:PORT="8777"
-python -m apps.api.main
+python main.py
 ```
 
 ## Deploy

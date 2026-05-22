@@ -12,7 +12,7 @@ Este projeto esta preparado para subir como um servico web Python no Railway.
 ## Comando de Start
 
 ```text
-python -m apps.api.main
+python main.py
 ```
 
 ## Healthcheck
@@ -27,7 +27,7 @@ python -m apps.api.main
 2. No Railway, crie um novo projeto.
 3. Escolha deploy a partir do GitHub.
 4. Se o repositorio tambem tiver o Igrejahub, configure o root directory como `trading-ai-hub`.
-5. Confirme o start command `python -m apps.api.main`.
+5. Confirme o start command `python main.py`.
 6. Depois do deploy, abra a URL publica do Railway.
 
 ## Rotas
