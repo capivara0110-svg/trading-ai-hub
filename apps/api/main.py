@@ -13,12 +13,13 @@ sys.path.insert(0, str(ROOT))
 from packages.strategy_core.backtest import run_backtest
 from packages.strategy_core.data import load_candles
 from packages.strategy_core.datasets import DatasetStore
+from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.signals import detect_forex_signal
 
 
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 DATASETS = DatasetStore(ROOT, DEFAULT_DATASET)
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -55,6 +56,11 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         if parsed.path == "/backtest":
             candles = load_candles(DATASETS.active_path())
             self.send_json(run_backtest(candles).to_dict())
+            return
+
+        if parsed.path == "/ml/status":
+            candles = load_candles(DATASETS.active_path())
+            self.send_json(train_signal_quality_model(candles).to_dict())
             return
 
         if self.send_static(parsed.path):

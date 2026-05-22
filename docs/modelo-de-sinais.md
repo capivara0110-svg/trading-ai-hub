@@ -53,6 +53,17 @@ O modelo deve retornar:
 - alvos
 - motivo em linguagem simples
 
+## Modelo Atual
+
+A primeira versao usa um classificador leve por similaridade:
+
+- gera features de tendencia, momentum, volatilidade, forca do candle e retorno recente
+- rotula exemplos historicos pelo comportamento dos proximos candles
+- calcula centroides de exemplos vencedores e perdedores
+- pontua o candle atual pela proximidade com exemplos vencedores
+
+Esse modelo e apenas a primeira camada de IA. A proxima evolucao deve usar scikit-learn com validacao fora da amostra.
+
 ## Regras de Segurança
 
 - Ignorar sinal com confiança abaixo do mínimo configurado.
@@ -72,4 +83,3 @@ O modelo deve retornar:
 - Quantidade de trades.
 - Resultado por horário.
 - Resultado por ativo/timeframe.
-

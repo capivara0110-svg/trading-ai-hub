@@ -126,6 +126,7 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/datasets`
 - `http://127.0.0.1:8765/signals/latest`
 - `http://127.0.0.1:8765/backtest`
+- `http://127.0.0.1:8765/ml/status`
 
 Tambem e possivel simular o ambiente do Railway usando uma porta dinamica:
 
@@ -144,7 +145,7 @@ Guia:
 
 ## Estado Atual
 
-O primeiro protótipo está focado em Forex, usando EUR/USD M5 como amostra. Ele ainda não usa machine learning real; por enquanto existe uma regra-base com média móvel, RSI e ATR. Essa regra-base é necessária para depois treinar a IA como filtro de qualidade dos sinais.
+O primeiro protótipo está focado em Forex, usando EUR/USD M5 como amostra. Ele já tem uma primeira camada de machine learning leve para pontuar a qualidade do sinal, mas ainda precisa de histórico real amplo para ficar útil.
 
 Antes de vender acesso, o sistema ainda precisa de dados reais, backtest com custos/spread, auditoria de sinais e validação em conta demo.
 

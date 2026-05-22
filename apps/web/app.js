@@ -46,6 +46,16 @@ function renderSignal(signal) {
   document.querySelector("#signal-reason").textContent = Array.isArray(signal.reason)
     ? signal.reason.join(" | ")
     : "Sem motivo informado.";
+  document.querySelector("#metric-ml-score").textContent = signal.mlScore === null || signal.mlScore === undefined
+    ? "--"
+    : formatPercent(signal.mlScore);
+}
+
+function renderMlStatus(model) {
+  const status = model.trained
+    ? `${model.samples} amostras | treino ${formatPercent(model.trainAccuracy)}`
+    : `${model.samples} amostras | precisa de mais dados`;
+  document.querySelector("#metric-ml-status").textContent = status;
 }
 
 function renderDatasets(payload) {
@@ -109,14 +119,16 @@ function renderBacktest(backtest) {
 async function loadDashboard() {
   statusEl.textContent = "Atualizando";
   try {
-    const [signal, backtest, datasets] = await Promise.all([
+    const [signal, backtest, datasets, model] = await Promise.all([
       getJson("/signals/latest"),
       getJson("/backtest"),
       getJson("/datasets"),
+      getJson("/ml/status"),
     ]);
     renderSignal(signal);
     renderBacktest(backtest);
     renderDatasets(datasets);
+    renderMlStatus(model);
     statusEl.textContent = "Online";
   } catch (error) {
     statusEl.textContent = "Erro na API";
