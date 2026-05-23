@@ -35,7 +35,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.12.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -222,9 +222,29 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 self.send_json(check_and_send_latest_alert())
                 return
 
+            if parsed.path == "/jobs/twelve-data-scan":
+                payload = self.read_json_optional(max_size=4_000)
+                if not self.authorized_job(payload):
+                    self.send_json({"error": "job nao autorizado"}, status=401)
+                    return
+                self.send_json(refresh_twelve_data_and_alert(payload), status=201)
+                return
+
             self.send_json({"error": "route not found"}, status=404)
         except ValueError as error:
             self.send_json({"error": str(error)}, status=400)
+
+    def read_json_optional(self, max_size: int = 200_000) -> dict[str, object]:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            return {}
+        if length > max_size:
+            raise ValueError("Arquivo muito grande para este prototipo")
+        raw = self.rfile.read(length).decode("utf-8")
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("JSON invalido")
+        return payload
 
     def read_json(self, max_size: int = 200_000) -> dict[str, object]:
         length = int(self.headers.get("Content-Length", "0"))
@@ -323,6 +343,20 @@ def check_and_send_latest_alert() -> dict[str, object]:
     result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal)))
     mark_signal_sent(signal, TELEGRAM_ALERT_STATE)
     return {"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict()}
+
+
+def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, object]:
+    symbol = str(payload.get("symbol") or os.getenv("WATCH_SYMBOL") or "EURUSD")
+    timeframe = str(payload.get("timeframe") or os.getenv("WATCH_TIMEFRAME") or "M5")
+    outputsize = int(payload.get("outputsize") or os.getenv("WATCH_OUTPUTSIZE") or 120)
+    candles = fetch_time_series(symbol, timeframe, outputsize)
+    dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
+    alert = check_and_send_latest_alert()
+    return {
+        "dataset": dataset.to_dict(DATASETS.active_id()),
+        "candles": len(candles),
+        "alert": alert,
+    }
 
 
 def optional_ai_note(signal: object) -> str | None:

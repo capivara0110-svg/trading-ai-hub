@@ -46,6 +46,7 @@ python main.py
 - `/ai/status`: status da chave OpenAI e modelo configurado.
 - `/ai/explain-latest-signal`: gera uma leitura curta do sinal atual.
 - `/jobs/check-alerts`: job protegido para cron de alertas.
+- `/jobs/twelve-data-scan`: baixa candles da Twelve Data, analisa e alerta Telegram.
 - `/market/candles`: recebe candles de MT5/API externa.
 - `/market/alpha-vantage/status`: status da chave Alpha Vantage.
 - `/market/alpha-vantage/refresh`: baixa candles Forex da Alpha Vantage.
@@ -72,3 +73,23 @@ Para alertas em grupo/canal:
 - `OPENAI_API_KEY` para explicar sinais com IA
 - `AI_MODEL` opcional, padrao `gpt-4.1-nano`
 - `AI_TELEGRAM_EXPLANATION` opcional, padrao `true`
+- `WATCH_SYMBOL` opcional, padrao `EURUSD`
+- `WATCH_TIMEFRAME` opcional, padrao `M5`
+- `WATCH_OUTPUTSIZE` opcional, padrao `120`
+
+## Job Automatico
+
+Para monitorar o mercado, configure um cron externo chamando:
+
+```text
+POST /jobs/twelve-data-scan
+Header: X-Job-Secret: valor_do_ALERT_JOB_SECRET
+```
+
+Sugestao de intervalo:
+
+- `WATCH_TIMEFRAME=M5`: chamar a cada 5 minutos.
+- `WATCH_TIMEFRAME=M15`: chamar a cada 15 minutos.
+- `WATCH_TIMEFRAME=H1`: chamar a cada 1 hora.
+
+O job usa Twelve Data como fonte, salva os candles novos, recalcula o sinal e envia Telegram apenas quando o sinal for operacional, tiver confianca minima e ainda nao tiver sido enviado.

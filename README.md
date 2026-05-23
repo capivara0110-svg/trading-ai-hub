@@ -206,6 +206,9 @@ TWELVE_DATA_API_KEY=sua_chave_twelve_data
 OPENAI_API_KEY=sua_chave_openai
 AI_MODEL=gpt-4.1-nano
 AI_TELEGRAM_EXPLANATION=true
+WATCH_SYMBOL=EURUSD
+WATCH_TIMEFRAME=M5
+WATCH_OUTPUTSIZE=120
 ```
 
 Depois use o painel para testar a conexao e enviar o sinal atual ao grupo.
@@ -219,6 +222,23 @@ Para chamada automatica por cron, use:
 ```text
 POST /jobs/check-alerts
 Header: X-Job-Secret: valor_do_ALERT_JOB_SECRET
+```
+
+Para o robô monitorar sozinho com dados novos da Twelve Data, use:
+
+```text
+POST /jobs/twelve-data-scan
+Header: X-Job-Secret: valor_do_ALERT_JOB_SECRET
+```
+
+Esse job baixa candles, salva o dataset ativo, analisa o sinal e envia Telegram se houver oportunidade valida. Sem corpo JSON, ele usa `WATCH_SYMBOL`, `WATCH_TIMEFRAME` e `WATCH_OUTPUTSIZE`. Tambem aceita sobrescrever por chamada:
+
+```json
+{
+  "symbol": "EURUSD",
+  "timeframe": "M5",
+  "outputsize": 120
+}
 ```
 
 ## Dados ao Vivo
