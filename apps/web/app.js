@@ -23,6 +23,16 @@ const formatNumber = (value, digits = 5) => {
 
 const formatPercent = (value) => `${Math.round(Number(value || 0) * 100)}%`;
 
+const formatDateTime = (value) => {
+  if (!value) return "--";
+  return new Date(value).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 async function getJson(path) {
   const response = await fetch(path);
   if (!response.ok) {
@@ -114,6 +124,14 @@ function renderAiStatus(status) {
   aiExplainButton.disabled = !status.configured;
 }
 
+function renderMarketStatus(status) {
+  document.querySelector("#metric-market-status").textContent = status.isOpen ? "Aberto" : "Fechado";
+  document.querySelector("#metric-market-status").className = status.isOpen ? "positive" : "warning";
+  document.querySelector("#metric-market-detail").textContent = status.isOpen
+    ? `Fecha ${formatDateTime(status.nextClose)}`
+    : `Abre ${formatDateTime(status.nextOpen)}`;
+}
+
 function renderDatasets(payload) {
   const list = document.querySelector("#datasets-list");
   const datasets = Array.isArray(payload.datasets) ? payload.datasets : [];
@@ -175,7 +193,7 @@ function renderBacktest(backtest) {
 async function loadDashboard() {
   statusEl.textContent = "Atualizando";
   try {
-    const [signal, backtest, datasets, model, validation, telegram, alpha, twelve, ai] = await Promise.all([
+    const [signal, backtest, datasets, model, validation, telegram, alpha, twelve, ai, market] = await Promise.all([
       getJson("/signals/latest"),
       getJson("/backtest"),
       getJson("/datasets"),
@@ -185,6 +203,7 @@ async function loadDashboard() {
       getJson("/market/alpha-vantage/status"),
       getJson("/market/twelve-data/status"),
       getJson("/ai/status"),
+      getJson("/market/forex/status"),
     ]);
     renderSignal(signal);
     renderBacktest(backtest);
@@ -195,6 +214,7 @@ async function loadDashboard() {
     renderAlphaStatus(alpha);
     renderTwelveStatus(twelve);
     renderAiStatus(ai);
+    renderMarketStatus(market);
     statusEl.textContent = "Online";
   } catch (error) {
     statusEl.textContent = "Erro na API";

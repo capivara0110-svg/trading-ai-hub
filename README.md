@@ -130,6 +130,7 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/ml/validation`
 - `http://127.0.0.1:8765/alerts/telegram/status`
 - `http://127.0.0.1:8765/ai/status`
+- `http://127.0.0.1:8765/market/forex/status`
 - `http://127.0.0.1:8765/market/candles`
 
 Tambem e possivel simular o ambiente do Railway usando uma porta dinamica:
@@ -209,6 +210,10 @@ AI_TELEGRAM_EXPLANATION=true
 WATCH_SYMBOL=EURUSD
 WATCH_TIMEFRAME=M5
 WATCH_OUTPUTSIZE=120
+FOREX_MARKET_GUARD=true
+FOREX_FRIDAY_CLOSE_HOUR=18
+FOREX_SUNDAY_OPEN_HOUR=18
+MARKET_TIMEZONE=America/Sao_Paulo
 ```
 
 Depois use o painel para testar a conexao e enviar o sinal atual ao grupo.
@@ -240,6 +245,8 @@ Esse job baixa candles, salva o dataset ativo, analisa o sinal e envia Telegram 
   "outputsize": 120
 }
 ```
+
+Por padrao, o job respeita o fim de semana do Forex: pausa na sexta as 18h e volta no domingo as 18h, usando `MARKET_TIMEZONE`. Para teste manual fora do horario, envie `"force": true` no JSON.
 
 ## Dados ao Vivo
 

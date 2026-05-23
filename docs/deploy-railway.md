@@ -48,6 +48,7 @@ python main.py
 - `/jobs/check-alerts`: job protegido para cron de alertas.
 - `/jobs/twelve-data-scan`: baixa candles da Twelve Data, analisa e alerta Telegram.
 - `/market/candles`: recebe candles de MT5/API externa.
+- `/market/forex/status`: mostra se o Forex esta aberto ou fechado.
 - `/market/alpha-vantage/status`: status da chave Alpha Vantage.
 - `/market/alpha-vantage/refresh`: baixa candles Forex da Alpha Vantage.
 - `/market/twelve-data/status`: status da chave Twelve Data.
@@ -76,6 +77,10 @@ Para alertas em grupo/canal:
 - `WATCH_SYMBOL` opcional, padrao `EURUSD`
 - `WATCH_TIMEFRAME` opcional, padrao `M5`
 - `WATCH_OUTPUTSIZE` opcional, padrao `120`
+- `FOREX_MARKET_GUARD` opcional, padrao `true`
+- `FOREX_FRIDAY_CLOSE_HOUR` opcional, padrao `18`
+- `FOREX_SUNDAY_OPEN_HOUR` opcional, padrao `18`
+- `MARKET_TIMEZONE` opcional, padrao `America/Sao_Paulo`
 
 ## Job Automatico
 
@@ -93,3 +98,5 @@ Sugestao de intervalo:
 - `WATCH_TIMEFRAME=H1`: chamar a cada 1 hora.
 
 O job usa Twelve Data como fonte, salva os candles novos, recalcula o sinal e envia Telegram apenas quando o sinal for operacional, tiver confianca minima e ainda nao tiver sido enviado.
+
+Por padrao, o job automatico nao busca candles durante o fim de semana do Forex: sexta a partir de 18h, sabado inteiro e domingo antes de 18h no timezone configurado. Para teste manual, envie `"force": true` no JSON da chamada.

@@ -17,6 +17,8 @@ from packages.strategy_core.data import load_candles
 from packages.strategy_core.datasets import DatasetStore
 from packages.strategy_core.datasets import Dataset
 from packages.strategy_core.datasets import candles_from_payload
+from packages.strategy_core.market_hours import forex_market_status
+from packages.strategy_core.market_hours import should_skip_forex_scan
 from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.openai_ai import explain_signal
 from packages.strategy_core.openai_ai import openai_config_status
@@ -35,7 +37,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.12.0"
+APP_VERSION = "0.13.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -112,6 +114,10 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/market/twelve-data/status":
             self.send_json(twelve_data_status())
+            return
+
+        if parsed.path == "/market/forex/status":
+            self.send_json(current_forex_status())
             return
 
         if self.send_static(parsed.path):
@@ -346,6 +352,14 @@ def check_and_send_latest_alert() -> dict[str, object]:
 
 
 def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, object]:
+    skip_scan, market = should_skip_forex_scan(payload)
+    if skip_scan:
+        return {
+            "skipped": True,
+            "reason": "Mercado Forex fechado. Job automatico pausado ate a reabertura.",
+            "market": market,
+        }
+
     symbol = str(payload.get("symbol") or os.getenv("WATCH_SYMBOL") or "EURUSD")
     timeframe = str(payload.get("timeframe") or os.getenv("WATCH_TIMEFRAME") or "M5")
     outputsize = int(payload.get("outputsize") or os.getenv("WATCH_OUTPUTSIZE") or 120)
@@ -353,10 +367,20 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
     dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
     alert = check_and_send_latest_alert()
     return {
+        "skipped": False,
+        "market": forex_market_status(candles),
         "dataset": dataset.to_dict(DATASETS.active_id()),
         "candles": len(candles),
         "alert": alert,
     }
+
+
+def current_forex_status() -> dict[str, object]:
+    try:
+        candles = load_candles(DATASETS.active_path())
+    except ValueError:
+        candles = []
+    return forex_market_status(candles)
 
 
 def optional_ai_note(signal: object) -> str | None:
