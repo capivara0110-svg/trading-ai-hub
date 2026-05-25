@@ -132,6 +132,17 @@ function renderMarketStatus(status) {
     : `Abre ${formatDateTime(status.nextOpen)}`;
 }
 
+function renderJobStatus(status) {
+  const result = status.result || {};
+  const alert = result.alert || result;
+  const sent = alert.sent === true;
+  const skipped = result.skipped === true;
+  document.querySelector("#metric-job-status").textContent = sent ? "Enviado" : skipped ? "Pausado" : "Rodando";
+  document.querySelector("#metric-job-status").className = sent ? "positive" : skipped ? "warning" : "";
+  document.querySelector("#metric-job-detail").textContent =
+    alert.reason || result.reason || (status.lastRunAt ? `Ultimo ${formatDateTime(status.lastRunAt)}` : "Sem execucao");
+}
+
 function renderDatasets(payload) {
   const list = document.querySelector("#datasets-list");
   const datasets = Array.isArray(payload.datasets) ? payload.datasets : [];
@@ -193,7 +204,7 @@ function renderBacktest(backtest) {
 async function loadDashboard() {
   statusEl.textContent = "Atualizando";
   try {
-    const [signal, backtest, datasets, model, validation, telegram, alpha, twelve, ai, market] = await Promise.all([
+    const [signal, backtest, datasets, model, validation, telegram, alpha, twelve, ai, market, job] = await Promise.all([
       getJson("/signals/latest"),
       getJson("/backtest"),
       getJson("/datasets"),
@@ -204,6 +215,7 @@ async function loadDashboard() {
       getJson("/market/twelve-data/status"),
       getJson("/ai/status"),
       getJson("/market/forex/status"),
+      getJson("/jobs/status"),
     ]);
     renderSignal(signal);
     renderBacktest(backtest);
@@ -215,6 +227,7 @@ async function loadDashboard() {
     renderTwelveStatus(twelve);
     renderAiStatus(ai);
     renderMarketStatus(market);
+    renderJobStatus(job);
     statusEl.textContent = "Online";
   } catch (error) {
     statusEl.textContent = "Erro na API";

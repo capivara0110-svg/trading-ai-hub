@@ -63,7 +63,7 @@ def detect_forex_signal(
         )
 
     side_score = ml_score if signal.side == "BUY" else 1 - ml_score
-    confidence = round((signal.confidence * 0.72) + (side_score * 0.28), 2) if model.trained else signal.confidence
+    confidence = round((signal.confidence * 0.85) + (side_score * 0.15), 2) if model.trained else signal.confidence
     return Signal(
         symbol=signal.symbol,
         timeframe=signal.timeframe,
@@ -97,9 +97,18 @@ def detect_rule_signal(
     candle_range = max(last.high - last.low, 0.00001)
     body_strength = body / candle_range
     trend_strength = min(abs(fast - slow) / max(volatility, 0.00001), 1.0)
+    recent_move = closes[-1] - closes[-4] if len(closes) >= 4 else 0.0
+    direction_strength = min(abs(recent_move) / max(volatility, 0.00001), 1.0)
 
-    if fast > slow and last.close > last.open and 48 <= momentum <= 72:
-        confidence = round(min(0.52 + trend_strength * 0.2 + body_strength * 0.18, 0.86), 2)
+    if trend_strength < 0.08:
+        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["tendencia fraca ou lateral"])
+
+    if fast > slow and last.close >= fast and recent_move >= -volatility * 0.25 and 43 <= momentum <= 76:
+        momentum_score = max(0.0, 1 - abs(momentum - 58) / 24)
+        confidence = round(
+            min(0.50 + trend_strength * 0.22 + body_strength * 0.12 + direction_strength * 0.08 + momentum_score * 0.1, 0.86),
+            2,
+        )
         stop = round(last.close - volatility * 1.2, 5)
         risk = last.close - stop
         return Signal(
@@ -113,8 +122,12 @@ def detect_rule_signal(
             reason=["tendência curta compradora", "momentum saudável", "stop baseado em ATR"],
         )
 
-    if fast < slow and last.close < last.open and 28 <= momentum <= 52:
-        confidence = round(min(0.52 + trend_strength * 0.2 + body_strength * 0.18, 0.86), 2)
+    if fast < slow and last.close <= fast and recent_move <= volatility * 0.25 and 24 <= momentum <= 57:
+        momentum_score = max(0.0, 1 - abs(momentum - 42) / 24)
+        confidence = round(
+            min(0.50 + trend_strength * 0.22 + body_strength * 0.12 + direction_strength * 0.08 + momentum_score * 0.1, 0.86),
+            2,
+        )
         stop = round(last.close + volatility * 1.2, 5)
         risk = stop - last.close
         return Signal(

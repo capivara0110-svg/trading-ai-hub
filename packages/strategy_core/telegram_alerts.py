@@ -62,7 +62,7 @@ def send_telegram_message(text: str) -> dict[str, object]:
 
 
 def should_send_signal(signal: Signal, state_path: Path) -> tuple[bool, str]:
-    min_confidence = float(os.getenv("TELEGRAM_MIN_CONFIDENCE", "0.70"))
+    min_confidence = float(os.getenv("TELEGRAM_MIN_CONFIDENCE", "0.60"))
     if signal.side == "NO_TRADE":
         return False, "Sem sinal operacional."
     if signal.confidence < min_confidence:

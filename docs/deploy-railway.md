@@ -45,6 +45,7 @@ python main.py
 - `/alerts/telegram/check-latest`: envia apenas sinal valido e ainda nao enviado.
 - `/ai/status`: status da chave OpenAI e modelo configurado.
 - `/ai/explain-latest-signal`: gera uma leitura curta do sinal atual.
+- `/jobs/status`: mostra o ultimo resultado do robo automatico.
 - `/jobs/check-alerts`: job protegido para cron de alertas.
 - `/jobs/twelve-data-scan`: baixa candles da Twelve Data, analisa e alerta Telegram.
 - `/market/candles`: recebe candles de MT5/API externa.

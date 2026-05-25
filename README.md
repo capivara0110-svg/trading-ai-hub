@@ -130,6 +130,7 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/ml/validation`
 - `http://127.0.0.1:8765/alerts/telegram/status`
 - `http://127.0.0.1:8765/ai/status`
+- `http://127.0.0.1:8765/jobs/status`
 - `http://127.0.0.1:8765/market/forex/status`
 - `http://127.0.0.1:8765/market/candles`
 
@@ -199,7 +200,7 @@ Configure no Railway:
 ```text
 TELEGRAM_BOT_TOKEN=token_do_bot
 TELEGRAM_CHAT_ID=id_do_grupo_ou_canal
-TELEGRAM_MIN_CONFIDENCE=0.70
+TELEGRAM_MIN_CONFIDENCE=0.60
 ALERT_JOB_SECRET=uma_senha_grande_para_cron
 MARKET_INGEST_SECRET=uma_senha_grande_para_receber_candles
 ALPHA_VANTAGE_API_KEY=sua_chave_alpha_vantage
@@ -219,6 +220,8 @@ MARKET_TIMEZONE=America/Sao_Paulo
 Depois use o painel para testar a conexao e enviar o sinal atual ao grupo.
 
 O botao `Verificar e alertar` so envia se houver sinal operacional, se a confianca for maior que o minimo e se o mesmo sinal ainda nao tiver sido enviado.
+
+Se o Telegram ficar quieto, veja o card `Robo` no painel ou chame `/jobs/status`. Ele mostra o ultimo motivo: sem sinal, confianca abaixo do minimo, sinal repetido, mercado fechado ou alerta enviado.
 
 Se `OPENAI_API_KEY` estiver configurada, o painel tambem pode gerar uma leitura curta do sinal. Quando `AI_TELEGRAM_EXPLANATION=true`, essa leitura entra como complemento na mensagem do Telegram. A IA nao decide a ordem; ela apenas explica o sinal tecnico/ML.
 

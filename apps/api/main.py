@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -37,7 +38,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.13.0"
+APP_VERSION = "0.14.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -46,6 +47,7 @@ DATASETS = DatasetStore(
     ],
 )
 TELEGRAM_ALERT_STATE = ROOT / "data" / "uploads" / "telegram_alert_state.json"
+JOB_STATE = ROOT / "data" / "uploads" / "job_state.json"
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -118,6 +120,10 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/market/forex/status":
             self.send_json(current_forex_status())
+            return
+
+        if parsed.path == "/jobs/status":
+            self.send_json(read_job_state())
             return
 
         if self.send_static(parsed.path):
@@ -213,7 +219,9 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/alerts/telegram/check-latest":
-                self.send_json(check_and_send_latest_alert())
+                result = check_and_send_latest_alert()
+                save_job_state("manual-check", result)
+                self.send_json(result)
                 return
 
             if parsed.path == "/ai/explain-latest-signal":
@@ -225,7 +233,9 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 if not self.authorized_job(payload):
                     self.send_json({"error": "job nao autorizado"}, status=401)
                     return
-                self.send_json(check_and_send_latest_alert())
+                result = check_and_send_latest_alert()
+                save_job_state("check-alerts", result)
+                self.send_json(result)
                 return
 
             if parsed.path == "/jobs/twelve-data-scan":
@@ -233,11 +243,15 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 if not self.authorized_job(payload):
                     self.send_json({"error": "job nao autorizado"}, status=401)
                     return
-                self.send_json(refresh_twelve_data_and_alert(payload), status=201)
+                result = refresh_twelve_data_and_alert(payload)
+                save_job_state("twelve-data-scan", result)
+                self.send_json(result, status=201)
                 return
 
             self.send_json({"error": "route not found"}, status=404)
         except ValueError as error:
+            if parsed.path.startswith("/jobs/"):
+                save_job_state("job-error", {"sent": False, "reason": str(error), "error": str(error)})
             self.send_json({"error": str(error)}, status=400)
 
     def read_json_optional(self, max_size: int = 200_000) -> dict[str, object]:
@@ -381,6 +395,26 @@ def current_forex_status() -> dict[str, object]:
     except ValueError:
         candles = []
     return forex_market_status(candles)
+
+
+def save_job_state(job: str, result: dict[str, object]) -> None:
+    JOB_STATE.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "job": job,
+        "lastRunAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "result": result,
+    }
+    JOB_STATE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def read_job_state() -> dict[str, object]:
+    if not JOB_STATE.exists():
+        return {"configured": True, "lastRunAt": None, "result": None}
+    try:
+        payload = json.loads(JOB_STATE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"configured": True, "lastRunAt": None, "result": None, "error": "estado do job invalido"}
+    return payload if isinstance(payload, dict) else {"configured": True, "lastRunAt": None, "result": None}
 
 
 def optional_ai_note(signal: object) -> str | None:
