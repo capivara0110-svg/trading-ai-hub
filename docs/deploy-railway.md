@@ -67,7 +67,9 @@ Para alertas em grupo/canal:
 
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
-- `TELEGRAM_MIN_CONFIDENCE` opcional, padrao `0.70`
+- `TELEGRAM_MIN_CONFIDENCE` opcional, padrao `0.60`
+- `TELEGRAM_SEND_NO_SIGNAL_STATUS` opcional, padrao `false`
+- `TELEGRAM_STATUS_EVERY_MINUTES` opcional, padrao `240`
 - `ALERT_JOB_SECRET` para proteger `/jobs/check-alerts`
 - `MARKET_INGEST_SECRET` para proteger `/market/candles`
 - `ALPHA_VANTAGE_API_KEY` para atualizar candles via Alpha Vantage
@@ -78,6 +80,7 @@ Para alertas em grupo/canal:
 - `WATCH_SYMBOL` opcional, padrao `EURUSD`
 - `WATCH_TIMEFRAME` opcional, padrao `M5`
 - `WATCH_OUTPUTSIZE` opcional, padrao `120`
+- `SIGNAL_LOOKBACK_CANDLES` opcional, padrao `4`
 - `FOREX_MARKET_GUARD` opcional, padrao `true`
 - `FOREX_FRIDAY_CLOSE_HOUR` opcional, padrao `18`
 - `FOREX_SUNDAY_OPEN_HOUR` opcional, padrao `18`

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from packages.strategy_core.data import Candle
@@ -39,11 +40,35 @@ def detect_forex_signal(
     candles: list[Candle],
     symbol: str = "EURUSD",
     timeframe: str = "M5",
+    lookback: int | None = None,
 ) -> Signal:
+    max_lookback = max(1, min(int(lookback or os.getenv("SIGNAL_LOOKBACK_CANDLES", "4")), len(candles)))
     signal = detect_rule_signal(candles, symbol, timeframe)
     if signal.side == "NO_TRADE" and "dados insuficientes" in signal.reason:
         return signal
 
+    for offset in range(max_lookback):
+        window = candles[: len(candles) - offset]
+        candidate = detect_rule_signal(window, symbol, timeframe)
+        if candidate.side == "NO_TRADE":
+            continue
+        if offset > 0:
+            candidate = Signal(
+                symbol=candidate.symbol,
+                timeframe=candidate.timeframe,
+                side=candidate.side,
+                confidence=max(candidate.confidence - (offset * 0.03), 0.0),
+                entry=candidate.entry,
+                stop_loss=candidate.stop_loss,
+                take_profit=candidate.take_profit,
+                reason=candidate.reason + [f"setup detectado ha {offset} candle(s)"],
+            )
+        return apply_ml_score(candidate, window, symbol, timeframe)
+
+    return apply_ml_score(signal, candles, symbol, timeframe)
+
+
+def apply_ml_score(signal: Signal, candles: list[Candle], symbol: str, timeframe: str) -> Signal:
     model = train_signal_quality_model(candles)
     features = extract_features(candles)
     ml_score = model.score(features) if features else 0.5

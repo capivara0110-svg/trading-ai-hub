@@ -38,7 +38,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.14.0"
+APP_VERSION = "0.15.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -47,6 +47,7 @@ DATASETS = DatasetStore(
     ],
 )
 TELEGRAM_ALERT_STATE = ROOT / "data" / "uploads" / "telegram_alert_state.json"
+TELEGRAM_STATUS_STATE = ROOT / "data" / "uploads" / "telegram_status_state.json"
 JOB_STATE = ROOT / "data" / "uploads" / "job_state.json"
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -380,12 +381,16 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
     candles = fetch_time_series(symbol, timeframe, outputsize)
     dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
     alert = check_and_send_latest_alert()
+    market = forex_market_status(candles)
+    dataset_payload = dataset.to_dict(DATASETS.active_id())
+    status_update = maybe_send_monitor_status(alert, market, dataset_payload, len(candles))
     return {
         "skipped": False,
-        "market": forex_market_status(candles),
-        "dataset": dataset.to_dict(DATASETS.active_id()),
+        "market": market,
+        "dataset": dataset_payload,
         "candles": len(candles),
         "alert": alert,
+        "statusUpdate": status_update,
     }
 
 
@@ -415,6 +420,70 @@ def read_job_state() -> dict[str, object]:
     except json.JSONDecodeError:
         return {"configured": True, "lastRunAt": None, "result": None, "error": "estado do job invalido"}
     return payload if isinstance(payload, dict) else {"configured": True, "lastRunAt": None, "result": None}
+
+
+def maybe_send_monitor_status(
+    alert: dict[str, object],
+    market: dict[str, object],
+    dataset: dict[str, object],
+    candles: int,
+) -> dict[str, object]:
+    if os.getenv("TELEGRAM_SEND_NO_SIGNAL_STATUS", "false").lower() != "true":
+        return {"sent": False, "reason": "status desativado"}
+    if alert.get("sent") is True:
+        return {"sent": False, "reason": "sinal operacional ja enviado"}
+
+    interval_minutes = int(os.getenv("TELEGRAM_STATUS_EVERY_MINUTES", "240"))
+    now = datetime.now(timezone.utc)
+    last_sent = read_last_status_sent_at()
+    if last_sent and (now - last_sent).total_seconds() < interval_minutes * 60:
+        return {"sent": False, "reason": "aguardando intervalo do status"}
+
+    signal = alert.get("signal") if isinstance(alert.get("signal"), dict) else {}
+    message = "\n".join(
+        [
+            "Trading AI Hub",
+            "",
+            "Status do robo",
+            f"Mercado: {'aberto' if market.get('isOpen') else 'fechado'}",
+            f"Dataset: {dataset.get('symbol')} {dataset.get('timeframe')} | {candles} candles",
+            f"Ultima leitura: {signal.get('side', 'NO_TRADE')}",
+            f"Motivo: {alert.get('reason') or 'Sem sinal operacional.'}",
+            "",
+            "Aviso: status automatico, nao e recomendacao financeira.",
+        ]
+    )
+    try:
+        result = send_telegram_message(message)
+    except ValueError as error:
+        return {"sent": False, "reason": str(error)}
+    mark_status_sent_at(now)
+    return {"sent": True, "telegramOk": bool(result.get("ok"))}
+
+
+def read_last_status_sent_at() -> datetime | None:
+    if not TELEGRAM_STATUS_STATE.exists():
+        return None
+    try:
+        payload = json.loads(TELEGRAM_STATUS_STATE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    value = payload.get("lastSentAt")
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def mark_status_sent_at(value: datetime) -> None:
+    TELEGRAM_STATUS_STATE.parent.mkdir(parents=True, exist_ok=True)
+    TELEGRAM_STATUS_STATE.write_text(
+        json.dumps({"lastSentAt": value.isoformat(timespec="seconds")}, indent=2),
+        encoding="utf-8",
+    )
 
 
 def optional_ai_note(signal: object) -> str | None:

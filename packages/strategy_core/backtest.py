@@ -54,7 +54,7 @@ def run_backtest(candles: list[Candle], lookahead: int = 6, min_confidence: floa
 
     for index in range(20, len(candles) - lookahead):
         window = candles[: index + 1]
-        signal = detect_forex_signal(window)
+        signal = detect_forex_signal(window, lookback=1)
 
         if signal.side == "NO_TRADE" or signal.confidence < min_confidence:
             continue
