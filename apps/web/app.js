@@ -1,4 +1,7 @@
 const statusEl = document.querySelector("#api-status");
+const apiBaseInput = document.querySelector("#api-base-input");
+const apiSaveButton = document.querySelector("#api-save-button");
+const apiConfigMessage = document.querySelector("#api-config-message");
 const refreshButton = document.querySelector("#refresh-button");
 const importForm = document.querySelector("#import-form");
 const importMessage = document.querySelector("#import-message");
@@ -15,6 +18,17 @@ const twelveRefreshButton = document.querySelector("#twelve-refresh-button");
 const aiExplainButton = document.querySelector("#ai-explain-button");
 const aiMessage = document.querySelector("#ai-message");
 const aiOutput = document.querySelector("#ai-output");
+
+const API_STORAGE_KEY = "tradingAiApiBaseUrl";
+const initialApiParam = new URLSearchParams(window.location.search).get("api");
+let apiBaseUrl = normalizeApiBase(
+  initialApiParam || localStorage.getItem(API_STORAGE_KEY) || window.TRADING_AI_API_BASE_URL || ""
+);
+
+if (initialApiParam) {
+  localStorage.setItem(API_STORAGE_KEY, apiBaseUrl);
+}
+apiBaseInput.value = apiBaseUrl;
 
 const formatNumber = (value, digits = 5) => {
   if (value === null || value === undefined) return "--";
@@ -33,25 +47,58 @@ const formatDateTime = (value) => {
   });
 };
 
+function normalizeApiBase(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function needsExternalApi() {
+  return window.location.hostname.includes("netlify.app") || window.location.hostname.includes("netlify");
+}
+
+function apiUrl(path) {
+  if (!apiBaseUrl && needsExternalApi()) {
+    throw new Error("Informe a URL da API no Railway para carregar o painel no Netlify.");
+  }
+  return apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+}
+
 async function getJson(path) {
-  const response = await fetch(path);
+  const response = await fetch(apiUrl(path));
   if (!response.ok) {
     throw new Error(`Falha ao carregar ${path}`);
+  }
+  if (!String(response.headers.get("Content-Type") || "").includes("application/json")) {
+    throw new Error("A API retornou HTML. Configure a URL publica do Railway no campo API Railway.");
   }
   return response.json();
 }
 
 async function postJson(path, payload) {
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+  if (!String(response.headers.get("Content-Type") || "").includes("application/json")) {
+    throw new Error("A API retornou HTML. Configure a URL publica do Railway no campo API Railway.");
+  }
   const data = await response.json();
   if (!response.ok) {
     throw new Error(data.error || `Falha ao enviar ${path}`);
   }
   return data;
+}
+
+function saveApiBaseUrl() {
+  apiBaseUrl = normalizeApiBase(apiBaseInput.value);
+  if (apiBaseUrl) {
+    localStorage.setItem(API_STORAGE_KEY, apiBaseUrl);
+    apiConfigMessage.textContent = "API configurada. Atualizando painel...";
+  } else {
+    localStorage.removeItem(API_STORAGE_KEY);
+    apiConfigMessage.textContent = "Usando API no mesmo dominio do painel.";
+  }
+  loadDashboard();
 }
 
 function renderSignal(signal) {
@@ -230,7 +277,8 @@ async function loadDashboard() {
     renderJobStatus(job);
     statusEl.textContent = "Online";
   } catch (error) {
-    statusEl.textContent = "Erro na API";
+    statusEl.textContent = needsExternalApi() && !apiBaseUrl ? "Configurar API" : "Erro na API";
+    apiConfigMessage.textContent = error.message;
     console.error(error);
   }
 }
@@ -317,6 +365,7 @@ async function handleImport(event) {
 }
 
 refreshButton.addEventListener("click", loadDashboard);
+apiSaveButton.addEventListener("click", saveApiBaseUrl);
 importForm.addEventListener("submit", handleImport);
 alphaForm.addEventListener("submit", handleAlphaRefresh);
 twelveForm.addEventListener("submit", handleTwelveRefresh);

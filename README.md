@@ -149,6 +149,30 @@ Guia:
 
 [docs/deploy-railway.md](docs/deploy-railway.md)
 
+## Frontend no Netlify
+
+O repositorio inclui `netlify.toml`, entao o Netlify deve publicar automaticamente a pasta:
+
+```text
+apps/web
+```
+
+Se configurar manualmente no Netlify:
+
+```text
+Base directory: vazio
+Build command: vazio
+Publish directory: apps/web
+```
+
+Depois de abrir o site no Netlify, informe no campo `API Railway` a URL publica da API, por exemplo:
+
+```text
+https://seu-app.up.railway.app
+```
+
+Tambem da para abrir uma vez com `?api=https://seu-app.up.railway.app`; o painel salva essa URL no navegador.
+
 ## Estado Atual
 
 O primeiro protótipo está focado em Forex, usando EUR/USD M5 como amostra. Ele já tem uma primeira camada de machine learning leve para pontuar a qualidade do sinal, mas ainda precisa de histórico real amplo para ficar útil.

@@ -24,6 +24,15 @@
         </span>
       </section>
 
+      <section class="api-config" aria-label="Configuracao da API">
+        <label>
+          API Railway
+          <input id="api-base-input" placeholder="https://seu-app.up.railway.app" />
+        </label>
+        <button id="api-save-button" type="button">Conectar</button>
+        <p id="api-config-message">Use vazio quando o painel estiver rodando junto da API.</p>
+      </section>
+
       <section class="signal-board" aria-label="Sinal atual">
         <div class="signal-main">
           <span class="label">Sinal atual</span>
@@ -297,6 +306,7 @@
       </section>
     </main>
 
+    <script src="/config.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

@@ -1,0 +1,1 @@
+window.TRADING_AI_API_BASE_URL = window.TRADING_AI_API_BASE_URL || "";

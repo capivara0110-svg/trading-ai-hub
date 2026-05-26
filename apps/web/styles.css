@@ -96,6 +96,24 @@ button {
   color: #ffd4a8;
 }
 
+.api-config {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(180px, 0.8fr);
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid rgba(238, 244, 239, 0.1);
+  border-radius: 8px;
+  background: rgba(21, 29, 27, 0.72);
+}
+
+.api-config p {
+  margin: 0;
+  color: #cbd8d0;
+  line-height: 1.4;
+}
+
 button {
   min-height: 38px;
   padding: 0 14px;
@@ -437,6 +455,10 @@ input[type="file"] {
   .notice {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .api-config {
+    grid-template-columns: 1fr;
   }
 
   .metrics {
