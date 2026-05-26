@@ -113,6 +113,11 @@
           <strong id="metric-job-status">--</strong>
           <small id="metric-job-detail">--</small>
         </article>
+        <article>
+          <span>Sinais reais</span>
+          <strong id="metric-live-signals">--</strong>
+          <small id="metric-live-detail">--</small>
+        </article>
       </section>
 
       <section class="workspace">
@@ -171,6 +176,33 @@
           <p class="validation-note">
             A IA filtrada pode reduzir trades e drawdown mesmo quando nao aumenta o lucro total.
           </p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <span class="label">Demo</span>
+              <h2>Sinais enviados</h2>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Enviado</th>
+                  <th>Lado</th>
+                  <th>Entrada</th>
+                  <th>Status</th>
+                  <th>Resultado</th>
+                </tr>
+              </thead>
+              <tbody id="signal-history-body">
+                <tr>
+                  <td colspan="5">Carregando historico...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <aside class="panel import-panel">

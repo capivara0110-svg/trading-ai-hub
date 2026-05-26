@@ -125,6 +125,7 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/health`
 - `http://127.0.0.1:8765/datasets`
 - `http://127.0.0.1:8765/signals/latest`
+- `http://127.0.0.1:8765/signals/history`
 - `http://127.0.0.1:8765/backtest`
 - `http://127.0.0.1:8765/ml/status`
 - `http://127.0.0.1:8765/ml/validation`
@@ -249,6 +250,8 @@ Depois use o painel para testar a conexao e enviar o sinal atual ao grupo.
 O botao `Verificar e alertar` so envia se houver sinal operacional, se a confianca for maior que o minimo e se o mesmo sinal ainda nao tiver sido enviado.
 
 Se o Telegram ficar quieto, veja o card `Robo` no painel ou chame `/jobs/status`. Ele mostra o ultimo motivo: sem sinal, confianca abaixo do minimo, sinal repetido, mercado fechado ou alerta enviado.
+
+Cada sinal operacional enviado ao Telegram tambem entra em `/signals/history`. Quando novos candles chegam, o sistema marca o sinal como `OPEN`, `WIN` ou `LOSS` conforme bater primeiro no primeiro alvo ou no stop. Isso serve muito bem para conta demo e medicao real; para conta real ainda faltam spread, slippage e gestao de risco.
 
 Para receber uma mensagem de status mesmo quando nao houver entrada, ative:
 

@@ -24,6 +24,10 @@ from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.openai_ai import explain_signal
 from packages.strategy_core.openai_ai import openai_config_status
 from packages.strategy_core.openai_ai import should_add_ai_to_telegram
+from packages.strategy_core.signal_history import evaluate_history
+from packages.strategy_core.signal_history import history_summary
+from packages.strategy_core.signal_history import load_history
+from packages.strategy_core.signal_history import record_signal
 from packages.strategy_core.signals import detect_forex_signal
 from packages.strategy_core.telegram_alerts import format_signal_message
 from packages.strategy_core.telegram_alerts import mark_signal_sent
@@ -38,7 +42,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.15.0"
+APP_VERSION = "0.16.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -49,6 +53,7 @@ DATASETS = DatasetStore(
 TELEGRAM_ALERT_STATE = ROOT / "data" / "uploads" / "telegram_alert_state.json"
 TELEGRAM_STATUS_STATE = ROOT / "data" / "uploads" / "telegram_status_state.json"
 JOB_STATE = ROOT / "data" / "uploads" / "job_state.json"
+SIGNAL_HISTORY = ROOT / "data" / "uploads" / "signal_history.json"
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -125,6 +130,10 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/jobs/status":
             self.send_json(read_job_state())
+            return
+
+        if parsed.path == "/signals/history":
+            self.send_json(current_signal_history())
             return
 
         if self.send_static(parsed.path):
@@ -216,7 +225,19 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     timeframe=dataset.timeframe if dataset else "M5",
                 )
                 result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal)))
-                self.send_json({"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict()})
+                history_item = (
+                    record_signal(signal, SIGNAL_HISTORY, candles[-1].time if candles else None)
+                    if signal.side != "NO_TRADE"
+                    else None
+                )
+                self.send_json(
+                    {
+                        "sent": True,
+                        "telegramOk": bool(result.get("ok")),
+                        "signal": signal.to_dict(),
+                        "history": history_item,
+                    }
+                )
                 return
 
             if parsed.path == "/alerts/telegram/check-latest":
@@ -357,13 +378,20 @@ def latest_signal() -> object:
 
 
 def check_and_send_latest_alert() -> dict[str, object]:
-    signal = latest_signal()
+    dataset = DATASETS.active_dataset()
+    candles = load_candles(DATASETS.active_path())
+    signal = detect_forex_signal(
+        candles,
+        symbol=dataset.symbol if dataset else "EURUSD",
+        timeframe=dataset.timeframe if dataset else "M5",
+    )
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
     if not should_send:
         return {"sent": False, "reason": reason, "signal": signal.to_dict()}
     result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal)))
     mark_signal_sent(signal, TELEGRAM_ALERT_STATE)
-    return {"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict()}
+    history_item = record_signal(signal, SIGNAL_HISTORY, candles[-1].time if candles else None)
+    return {"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict(), "history": history_item}
 
 
 def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, object]:
@@ -380,6 +408,7 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
     outputsize = int(payload.get("outputsize") or os.getenv("WATCH_OUTPUTSIZE") or 120)
     candles = fetch_time_series(symbol, timeframe, outputsize)
     dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
+    performance = evaluate_history(SIGNAL_HISTORY, candles)
     alert = check_and_send_latest_alert()
     market = forex_market_status(candles)
     dataset_payload = dataset.to_dict(DATASETS.active_id())
@@ -391,6 +420,7 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
         "candles": len(candles),
         "alert": alert,
         "statusUpdate": status_update,
+        "performance": performance,
     }
 
 
@@ -400,6 +430,16 @@ def current_forex_status() -> dict[str, object]:
     except ValueError:
         candles = []
     return forex_market_status(candles)
+
+
+def current_signal_history() -> dict[str, object]:
+    try:
+        candles = load_candles(DATASETS.active_path())
+    except ValueError:
+        candles = []
+    if candles:
+        return evaluate_history(SIGNAL_HISTORY, candles)
+    return history_summary(load_history(SIGNAL_HISTORY))
 
 
 def save_job_state(job: str, result: dict[str, object]) -> None:

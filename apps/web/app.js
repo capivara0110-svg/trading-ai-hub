@@ -194,6 +194,39 @@ function renderJobStatus(status) {
     alert.reason || result.reason || (status.lastRunAt ? `Ultimo ${formatDateTime(status.lastRunAt)}` : "Sem execucao");
 }
 
+function renderSignalHistory(history) {
+  document.querySelector("#metric-live-signals").textContent = Number(history.totalSignals || 0);
+  document.querySelector("#metric-live-detail").textContent =
+    `${formatPercent(history.winRate)} acerto | ${Number(history.totalPips || 0).toFixed(1)} pips`;
+
+  const body = document.querySelector("#signal-history-body");
+  const signals = Array.isArray(history.signals) ? history.signals : [];
+  if (!signals.length) {
+    body.innerHTML = '<tr><td colspan="5">Nenhum sinal enviado ainda.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = signals
+    .slice(-12)
+    .reverse()
+    .map((signal) => {
+      const statusClass = signal.status === "WIN" ? "positive" : signal.status === "LOSS" ? "negative" : "warning";
+      const result = signal.resultPips === null || signal.resultPips === undefined
+        ? "--"
+        : `${Number(signal.resultPips).toFixed(1)} pips`;
+      return `
+        <tr>
+          <td>${formatDateTime(signal.sentAt)}</td>
+          <td>${signal.side || "--"}</td>
+          <td>${formatNumber(signal.entry)}</td>
+          <td class="${statusClass}">${signal.status || "--"}</td>
+          <td>${result}</td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
 function renderDatasets(payload) {
   const list = document.querySelector("#datasets-list");
   const datasets = Array.isArray(payload.datasets) ? payload.datasets : [];
@@ -255,7 +288,7 @@ function renderBacktest(backtest) {
 async function loadDashboard() {
   statusEl.textContent = "Atualizando";
   try {
-    const [signal, backtest, datasets, model, validation, telegram, alpha, twelve, ai, market, job] = await Promise.all([
+    const [signal, backtest, datasets, model, validation, telegram, alpha, twelve, ai, market, job, history] = await Promise.all([
       getJson("/signals/latest"),
       getJson("/backtest"),
       getJson("/datasets"),
@@ -267,6 +300,7 @@ async function loadDashboard() {
       getJson("/ai/status"),
       getJson("/market/forex/status"),
       getJson("/jobs/status"),
+      getJson("/signals/history"),
     ]);
     renderSignal(signal);
     renderBacktest(backtest);
@@ -279,6 +313,7 @@ async function loadDashboard() {
     renderAiStatus(ai);
     renderMarketStatus(market);
     renderJobStatus(job);
+    renderSignalHistory(history);
     statusEl.textContent = "Online";
   } catch (error) {
     statusEl.textContent = needsExternalApi() && !apiBaseUrl ? "Configurar API" : "Erro na API";

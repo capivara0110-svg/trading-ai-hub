@@ -36,6 +36,7 @@ python main.py
 - `/health`: status da API, versao e dataset atual.
 - `/datasets`: historicos cadastrados.
 - `/signals/latest`: ultimo sinal calculado.
+- `/signals/history`: historico de sinais enviados e resultado em demo.
 - `/backtest`: resultado do backtest atual.
 - `/ml/status`: status do treino de machine learning.
 - `/ml/validation`: comparacao fora da amostra entre regra-base e filtro de IA.
