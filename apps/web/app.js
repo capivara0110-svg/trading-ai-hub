@@ -48,7 +48,11 @@ const formatDateTime = (value) => {
 };
 
 function normalizeApiBase(value) {
-  return String(value || "").trim().replace(/\/+$/, "");
+  const clean = String(value || "").trim().replace(/\/+$/, "");
+  if (!clean || clean.startsWith("/") || clean.startsWith("http://") || clean.startsWith("https://")) {
+    return clean;
+  }
+  return `https://${clean}`;
 }
 
 function needsExternalApi() {
