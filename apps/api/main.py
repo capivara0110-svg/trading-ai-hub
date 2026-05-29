@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -42,7 +44,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.16.0"
+APP_VERSION = "0.17.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -362,9 +364,35 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 def run_server() -> None:
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8765"))
+    start_auto_scan_worker()
     server = HTTPServer((host, port), TradingApiHandler)
     print(f"Trading AI Hub API running at http://{host}:{port}", flush=True)
     server.serve_forever()
+
+
+def start_auto_scan_worker() -> None:
+    if os.getenv("AUTO_SCAN_ENABLED", "true").lower() != "true":
+        print("Auto scan disabled.", flush=True)
+        return
+    worker = threading.Thread(target=auto_scan_loop, name="auto-scan-worker", daemon=True)
+    worker.start()
+
+
+def auto_scan_loop() -> None:
+    interval = int(os.getenv("AUTO_SCAN_INTERVAL_SECONDS", "300"))
+    initial_delay = int(os.getenv("AUTO_SCAN_INITIAL_DELAY_SECONDS", "20"))
+    print(f"Auto scan enabled. First run in {initial_delay}s, interval {interval}s.", flush=True)
+    time.sleep(max(0, initial_delay))
+    while True:
+        try:
+            result = refresh_twelve_data_and_alert({})
+            save_job_state("auto-scan", result)
+            print(f"Auto scan result: {json.dumps(result, ensure_ascii=False)}", flush=True)
+        except Exception as error:
+            result = {"sent": False, "reason": str(error), "error": str(error)}
+            save_job_state("auto-scan-error", result)
+            print(f"Auto scan error: {error}", flush=True)
+        time.sleep(max(60, interval))
 
 
 def latest_signal() -> object:

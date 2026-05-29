@@ -239,6 +239,9 @@ WATCH_SYMBOL=EURUSD
 WATCH_TIMEFRAME=M5
 WATCH_OUTPUTSIZE=120
 SIGNAL_LOOKBACK_CANDLES=4
+AUTO_SCAN_ENABLED=true
+AUTO_SCAN_INTERVAL_SECONDS=300
+AUTO_SCAN_INITIAL_DELAY_SECONDS=20
 FOREX_MARKET_GUARD=true
 FOREX_FRIDAY_CLOSE_HOUR=18
 FOREX_SUNDAY_OPEN_HOUR=18
@@ -289,6 +292,8 @@ Esse job baixa candles, salva o dataset ativo, analisa o sinal e envia Telegram 
 ```
 
 Por padrao, o job respeita o fim de semana do Forex: pausa na sexta as 18h e volta no domingo as 18h, usando `MARKET_TIMEZONE`. Para teste manual fora do horario, envie `"force": true` no JSON.
+
+O Railway tambem roda um monitor interno quando `AUTO_SCAN_ENABLED=true`. Nesse modo ele chama a mesma rotina automaticamente a cada `AUTO_SCAN_INTERVAL_SECONDS`, sem depender de cron externo.
 
 ## Dados ao Vivo
 

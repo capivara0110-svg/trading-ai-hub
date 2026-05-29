@@ -82,6 +82,9 @@ Para alertas em grupo/canal:
 - `WATCH_TIMEFRAME` opcional, padrao `M5`
 - `WATCH_OUTPUTSIZE` opcional, padrao `120`
 - `SIGNAL_LOOKBACK_CANDLES` opcional, padrao `4`
+- `AUTO_SCAN_ENABLED` opcional, padrao `true`
+- `AUTO_SCAN_INTERVAL_SECONDS` opcional, padrao `300`
+- `AUTO_SCAN_INITIAL_DELAY_SECONDS` opcional, padrao `20`
 - `FOREX_MARKET_GUARD` opcional, padrao `true`
 - `FOREX_FRIDAY_CLOSE_HOUR` opcional, padrao `18`
 - `FOREX_SUNDAY_OPEN_HOUR` opcional, padrao `18`
@@ -105,3 +108,5 @@ Sugestao de intervalo:
 O job usa Twelve Data como fonte, salva os candles novos, recalcula o sinal e envia Telegram apenas quando o sinal for operacional, tiver confianca minima e ainda nao tiver sido enviado.
 
 Por padrao, o job automatico nao busca candles durante o fim de semana do Forex: sexta a partir de 18h, sabado inteiro e domingo antes de 18h no timezone configurado. Para teste manual, envie `"force": true` no JSON da chamada.
+
+Se `AUTO_SCAN_ENABLED=true`, o proprio servico do Railway executa esse monitor em loop. O cron externo vira opcional.
