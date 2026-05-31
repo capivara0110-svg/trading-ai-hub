@@ -35,6 +35,20 @@ class Signal:
             "mlTrained": self.ml_trained,
         }
 
+    def with_adjustment(self, confidence_delta: float, reasons: list[str]) -> "Signal":
+        return Signal(
+            symbol=self.symbol,
+            timeframe=self.timeframe,
+            side=self.side,
+            confidence=round(min(max(self.confidence + confidence_delta, 0.0), 0.95), 2),
+            entry=self.entry,
+            stop_loss=self.stop_loss,
+            take_profit=self.take_profit,
+            reason=self.reason + reasons,
+            ml_score=self.ml_score,
+            ml_trained=self.ml_trained,
+        )
+
 
 def detect_forex_signal(
     candles: list[Candle],

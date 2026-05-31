@@ -242,6 +242,11 @@ SIGNAL_LOOKBACK_CANDLES=4
 AUTO_SCAN_ENABLED=true
 AUTO_SCAN_INTERVAL_SECONDS=300
 AUTO_SCAN_INITIAL_DELAY_SECONDS=20
+MTF_CONFIRMATION_ENABLED=true
+MTF_CONFIRM_TIMEFRAMES=M15,H1
+MTF_OUTPUTSIZE=120
+MTF_CONFIRM_BONUS=0.05
+MTF_CONFLICT_PENALTY=0.08
 FOREX_MARKET_GUARD=true
 FOREX_FRIDAY_CLOSE_HOUR=18
 FOREX_SUNDAY_OPEN_HOUR=18
@@ -294,6 +299,8 @@ Esse job baixa candles, salva o dataset ativo, analisa o sinal e envia Telegram 
 Por padrao, o job respeita o fim de semana do Forex: pausa na sexta as 18h e volta no domingo as 18h, usando `MARKET_TIMEZONE`. Para teste manual fora do horario, envie `"force": true` no JSON.
 
 O Railway tambem roda um monitor interno quando `AUTO_SCAN_ENABLED=true`. Nesse modo ele chama a mesma rotina automaticamente a cada `AUTO_SCAN_INTERVAL_SECONDS`, sem depender de cron externo.
+
+Com `MTF_CONFIRMATION_ENABLED=true`, o robo usa M15/H1 como confirmacao. Se o timeframe maior estiver a favor, aumenta a confianca; se estiver contra, reduz. Isso melhora qualidade sem bloquear completamente a entrada do M5.
 
 ## Dados ao Vivo
 

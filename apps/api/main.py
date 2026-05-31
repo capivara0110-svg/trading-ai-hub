@@ -44,7 +44,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.18.0"
+APP_VERSION = "0.19.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -413,6 +413,7 @@ def check_and_send_latest_alert() -> dict[str, object]:
         symbol=dataset.symbol if dataset else "EURUSD",
         timeframe=dataset.timeframe if dataset else "M5",
     )
+    signal = apply_stored_mtf_confirmation(signal)
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
     if not should_send:
         return {"sent": False, "reason": reason, "signal": signal.to_dict()}
@@ -436,6 +437,7 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
     outputsize = int(payload.get("outputsize") or os.getenv("WATCH_OUTPUTSIZE") or 120)
     candles = fetch_time_series(symbol, timeframe, outputsize)
     dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
+    confirmation_datasets = refresh_confirmation_timeframes(symbol, timeframe)
     performance = evaluate_history(SIGNAL_HISTORY, candles)
     alert = check_and_send_latest_alert()
     market = forex_market_status(candles)
@@ -449,7 +451,79 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
         "alert": alert,
         "statusUpdate": status_update,
         "performance": performance,
+        "confirmations": confirmation_datasets,
     }
+
+
+def refresh_confirmation_timeframes(symbol: str, primary_timeframe: str) -> list[dict[str, object]]:
+    if os.getenv("MTF_CONFIRMATION_ENABLED", "true").lower() != "true":
+        return []
+    timeframes = [
+        item.strip().upper()
+        for item in os.getenv("MTF_CONFIRM_TIMEFRAMES", "M15,H1").split(",")
+        if item.strip()
+    ]
+    saved: list[dict[str, object]] = []
+    for timeframe in timeframes:
+        if timeframe == primary_timeframe.upper():
+            continue
+        try:
+            candles = fetch_time_series(symbol, timeframe, int(os.getenv("MTF_OUTPUTSIZE", "120")))
+            dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
+            saved.append(dataset.to_dict(DATASETS.active_id()))
+        except ValueError as error:
+            print(f"MTF confirmation skipped for {timeframe}: {error}", flush=True)
+    primary = DATASETS.get(f"{symbol.lower()}-{primary_timeframe.lower()}")
+    if primary:
+        DATASETS.set_active(primary.id)
+    return saved
+
+
+def apply_stored_mtf_confirmation(signal: object) -> object:
+    if os.getenv("MTF_CONFIRMATION_ENABLED", "true").lower() != "true":
+        return signal
+    if getattr(signal, "side", "NO_TRADE") == "NO_TRADE":
+        return signal
+
+    bonus = 0.0
+    reasons: list[str] = []
+    for timeframe in [
+        item.strip().upper()
+        for item in os.getenv("MTF_CONFIRM_TIMEFRAMES", "M15,H1").split(",")
+        if item.strip()
+    ]:
+        dataset = DATASETS.get(f"{signal.symbol.lower()}-{timeframe.lower()}")
+        if not dataset:
+            reasons.append(f"{timeframe} sem dados para confirmacao")
+            continue
+        candles = load_candles(dataset.path)
+        trend = timeframe_bias(candles)
+        if trend == signal.side:
+            bonus += float(os.getenv("MTF_CONFIRM_BONUS", "0.05"))
+            reasons.append(f"{timeframe} confirma {signal.side}")
+        elif trend == "NEUTRAL":
+            reasons.append(f"{timeframe} neutro")
+        else:
+            bonus -= float(os.getenv("MTF_CONFLICT_PENALTY", "0.08"))
+            reasons.append(f"{timeframe} contra {signal.side}")
+    return signal.with_adjustment(bonus, reasons)
+
+
+def timeframe_bias(candles: list[object]) -> str:
+    closes = [candle.close for candle in candles]
+    if len(closes) < 20:
+        return "NEUTRAL"
+    fast = sum(closes[-5:]) / 5
+    slow = sum(closes[-20:]) / 20
+    last = closes[-1]
+    spread = abs(fast - slow) / max(last, 0.00001)
+    if spread < 0.00008:
+        return "NEUTRAL"
+    if fast > slow and last >= fast:
+        return "BUY"
+    if fast < slow and last <= fast:
+        return "SELL"
+    return "NEUTRAL"
 
 
 def current_forex_status() -> dict[str, object]:

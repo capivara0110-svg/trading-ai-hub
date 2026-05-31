@@ -85,6 +85,11 @@ Para alertas em grupo/canal:
 - `AUTO_SCAN_ENABLED` opcional, padrao `true`
 - `AUTO_SCAN_INTERVAL_SECONDS` opcional, padrao `300`
 - `AUTO_SCAN_INITIAL_DELAY_SECONDS` opcional, padrao `20`
+- `MTF_CONFIRMATION_ENABLED` opcional, padrao `true`
+- `MTF_CONFIRM_TIMEFRAMES` opcional, padrao `M15,H1`
+- `MTF_OUTPUTSIZE` opcional, padrao `120`
+- `MTF_CONFIRM_BONUS` opcional, padrao `0.05`
+- `MTF_CONFLICT_PENALTY` opcional, padrao `0.08`
 - `FOREX_MARKET_GUARD` opcional, padrao `true`
 - `FOREX_FRIDAY_CLOSE_HOUR` opcional, padrao `18`
 - `FOREX_SUNDAY_OPEN_HOUR` opcional, padrao `18`
@@ -110,3 +115,5 @@ O job usa Twelve Data como fonte, salva os candles novos, recalcula o sinal e en
 Por padrao, o job automatico nao busca candles durante o fim de semana do Forex: sexta a partir de 18h, sabado inteiro e domingo antes de 18h no timezone configurado. Para teste manual, envie `"force": true` no JSON da chamada.
 
 Se `AUTO_SCAN_ENABLED=true`, o proprio servico do Railway executa esse monitor em loop. O cron externo vira opcional.
+
+O multi-timeframe usa os candles de confirmacao definidos em `MTF_CONFIRM_TIMEFRAMES`. Eles ajustam a confianca do sinal M5, sem bloquear totalmente a operacao.
