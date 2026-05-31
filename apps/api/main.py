@@ -46,7 +46,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.21.2"
+APP_VERSION = "0.21.1"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -77,7 +77,7 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     "status": "ok",
                     "project": "trading-ai-hub",
                     "version": APP_VERSION,
-                    "dataset": safe_active_dataset_name(),
+                    "dataset": DATASETS.active_path().name,
                 }
             )
             return
@@ -403,14 +403,6 @@ def dataset_cache_key(name: str) -> str:
     path = DATASETS.active_path()
     stat = path.stat()
     return f"{name}:{path}:{stat.st_mtime_ns}:{stat.st_size}"
-
-
-def safe_active_dataset_name() -> str:
-    try:
-        return DATASETS.active_path().name
-    except Exception as error:
-        print(f"Health dataset check skipped: {error}", flush=True)
-        return DEFAULT_DATASET.name
 
 
 def start_auto_scan_worker() -> None:
