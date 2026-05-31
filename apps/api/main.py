@@ -6,8 +6,7 @@ import sys
 import threading
 import time
 from datetime import datetime, timezone
-from collections.abc import Callable
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -46,7 +45,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.21.0"
+APP_VERSION = "0.20.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -63,8 +62,6 @@ CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
 }
-RESPONSE_CACHE: dict[str, tuple[str, dict[str, object]]] = {}
-CACHE_LOCK = threading.Lock()
 
 
 class TradingApiHandler(BaseHTTPRequestHandler):
@@ -100,30 +97,18 @@ class TradingApiHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/backtest":
-            self.send_json(
-                cached_dataset_payload(
-                    "backtest",
-                    lambda: run_backtest(load_candles(DATASETS.active_path())).to_dict(),
-                )
-            )
+            candles = load_candles(DATASETS.active_path())
+            self.send_json(run_backtest(candles).to_dict())
             return
 
         if parsed.path == "/ml/status":
-            self.send_json(
-                cached_dataset_payload(
-                    "ml-status",
-                    lambda: train_signal_quality_model(load_candles(DATASETS.active_path())).to_dict(),
-                )
-            )
+            candles = load_candles(DATASETS.active_path())
+            self.send_json(train_signal_quality_model(candles).to_dict())
             return
 
         if parsed.path == "/ml/validation":
-            self.send_json(
-                cached_dataset_payload(
-                    "ml-validation",
-                    lambda: run_out_of_sample_validation(load_candles(DATASETS.active_path())).to_dict(),
-                )
-            )
+            candles = load_candles(DATASETS.active_path())
+            self.send_json(run_out_of_sample_validation(candles).to_dict())
             return
 
         if parsed.path == "/alerts/telegram/status":
@@ -381,29 +366,9 @@ def run_server() -> None:
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8765"))
     start_auto_scan_worker()
-    server = ThreadingHTTPServer((host, port), TradingApiHandler)
-    server.daemon_threads = True
+    server = HTTPServer((host, port), TradingApiHandler)
     print(f"Trading AI Hub API running at http://{host}:{port}", flush=True)
     server.serve_forever()
-
-
-def cached_dataset_payload(name: str, factory: Callable[[], dict[str, object]]) -> dict[str, object]:
-    key = dataset_cache_key(name)
-    with CACHE_LOCK:
-        cached = RESPONSE_CACHE.get(name)
-        if cached and cached[0] == key:
-            return cached[1]
-
-    payload = factory()
-    with CACHE_LOCK:
-        RESPONSE_CACHE[name] = (key, payload)
-    return payload
-
-
-def dataset_cache_key(name: str) -> str:
-    path = DATASETS.active_path()
-    stat = path.stat()
-    return f"{name}:{path}:{stat.st_mtime_ns}:{stat.st_size}"
 
 
 def start_auto_scan_worker() -> None:
