@@ -124,17 +124,26 @@ def detect_rule_signal(
     trend_strength = min(abs(fast - slow) / max(volatility, 0.00001), 1.0)
     recent_move = closes[-1] - closes[-4] if len(closes) >= 4 else 0.0
     direction_strength = min(abs(recent_move) / max(volatility, 0.00001), 1.0)
+    distance_from_fast = abs(last.close - fast) / max(volatility, 0.00001)
+    pullback_score = max(0.0, 1 - min(distance_from_fast, 1.4) / 1.4)
+    chase_penalty = min(max(distance_from_fast - 1.2, 0.0) * 0.08, 0.12)
+    recent_low = min(candle.low for candle in candles[-8:])
+    recent_high = max(candle.high for candle in candles[-8:])
 
     if trend_strength < 0.08:
         return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["tendencia fraca ou lateral"])
 
     if fast > slow and last.close >= fast and recent_move >= -volatility * 0.25 and 43 <= momentum <= 76:
         momentum_score = max(0.0, 1 - abs(momentum - 58) / 24)
-        confidence = round(
-            min(0.50 + trend_strength * 0.22 + body_strength * 0.12 + direction_strength * 0.08 + momentum_score * 0.1, 0.86),
-            2,
+        confidence = quality_confidence(
+            trend_strength,
+            body_strength,
+            direction_strength,
+            momentum_score,
+            pullback_score,
+            chase_penalty,
         )
-        stop = round(last.close - volatility * 1.2, 5)
+        stop = round(min(last.close - volatility * 1.1, recent_low - volatility * 0.15), 5)
         risk = last.close - stop
         return Signal(
             symbol=symbol,
@@ -143,17 +152,21 @@ def detect_rule_signal(
             confidence=confidence,
             entry=round(last.close, 5),
             stop_loss=stop,
-            take_profit=[round(last.close + risk * 1.5, 5), round(last.close + risk * 2.2, 5)],
+            take_profit=[round(last.close + risk * 1.6, 5), round(last.close + risk * 2.4, 5)],
             reason=["tendência curta compradora", "momentum saudável", "stop baseado em ATR"],
         )
 
     if fast < slow and last.close <= fast and recent_move <= volatility * 0.25 and 24 <= momentum <= 57:
         momentum_score = max(0.0, 1 - abs(momentum - 42) / 24)
-        confidence = round(
-            min(0.50 + trend_strength * 0.22 + body_strength * 0.12 + direction_strength * 0.08 + momentum_score * 0.1, 0.86),
-            2,
+        confidence = quality_confidence(
+            trend_strength,
+            body_strength,
+            direction_strength,
+            momentum_score,
+            pullback_score,
+            chase_penalty,
         )
-        stop = round(last.close + volatility * 1.2, 5)
+        stop = round(max(last.close + volatility * 1.1, recent_high + volatility * 0.15), 5)
         risk = stop - last.close
         return Signal(
             symbol=symbol,
@@ -162,11 +175,31 @@ def detect_rule_signal(
             confidence=confidence,
             entry=round(last.close, 5),
             stop_loss=stop,
-            take_profit=[round(last.close - risk * 1.5, 5), round(last.close - risk * 2.2, 5)],
+            take_profit=[round(last.close - risk * 1.6, 5), round(last.close - risk * 2.4, 5)],
             reason=["tendência curta vendedora", "momentum saudável", "stop baseado em ATR"],
         )
 
     return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["sem vantagem estatística clara"])
+
+
+def quality_confidence(
+    trend_strength: float,
+    body_strength: float,
+    direction_strength: float,
+    momentum_score: float,
+    pullback_score: float,
+    chase_penalty: float,
+) -> float:
+    score = (
+        0.48
+        + trend_strength * 0.2
+        + body_strength * 0.08
+        + direction_strength * 0.08
+        + momentum_score * 0.1
+        + pullback_score * 0.12
+        - chase_penalty
+    )
+    return round(min(max(score, 0.0), 0.88), 2)
 
 
 def signal_reasons(reasons: list[str], trained: bool, score: float) -> list[str]:
