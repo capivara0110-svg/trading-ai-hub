@@ -247,6 +247,13 @@ MTF_CONFIRM_TIMEFRAMES=M15,H1
 MTF_OUTPUTSIZE=120
 MTF_CONFIRM_BONUS=0.05
 MTF_CONFLICT_PENALTY=0.08
+SESSION_CONFIDENCE_ENABLED=true
+SESSION_LONDON_START=04:00
+SESSION_LONDON_END=12:00
+SESSION_NY_START=09:00
+SESSION_NY_END=17:00
+SESSION_OVERLAP_BONUS=0.06
+SESSION_DEAD_ZONE_PENALTY=-0.04
 FOREX_MARKET_GUARD=true
 FOREX_FRIDAY_CLOSE_HOUR=18
 FOREX_SUNDAY_OPEN_HOUR=18
@@ -301,6 +308,8 @@ Por padrao, o job respeita o fim de semana do Forex: pausa na sexta as 18h e vol
 O Railway tambem roda um monitor interno quando `AUTO_SCAN_ENABLED=true`. Nesse modo ele chama a mesma rotina automaticamente a cada `AUTO_SCAN_INTERVAL_SECONDS`, sem depender de cron externo.
 
 Com `MTF_CONFIRMATION_ENABLED=true`, o robo usa M15/H1 como confirmacao. Se o timeframe maior estiver a favor, aumenta a confianca; se estiver contra, reduz. Isso melhora qualidade sem bloquear completamente a entrada do M5.
+
+Com `SESSION_CONFIDENCE_ENABLED=true`, o robo tambem ajusta a confianca por horario: Londres/NY ganham bonus, horario morto perde confianca, sexta perto do fechamento e domingo abertura recebem penalidade.
 
 ## Dados ao Vivo
 

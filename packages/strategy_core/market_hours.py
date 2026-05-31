@@ -44,6 +44,32 @@ def should_skip_forex_scan(payload: dict[str, object]) -> tuple[bool, dict[str, 
     return not bool(status["isOpen"]), status
 
 
+def session_confidence_adjustment(now: datetime | None = None) -> dict[str, object]:
+    market_tz = get_market_timezone()
+    current = (now or datetime.now(market_tz)).astimezone(market_tz)
+    minutes = current.hour * 60 + current.minute
+    weekday = current.weekday()
+
+    london_start = parse_session_minutes(os.getenv("SESSION_LONDON_START", "04:00"))
+    london_end = parse_session_minutes(os.getenv("SESSION_LONDON_END", "12:00"))
+    ny_start = parse_session_minutes(os.getenv("SESSION_NY_START", "09:00"))
+    ny_end = parse_session_minutes(os.getenv("SESSION_NY_END", "17:00"))
+    overlap_start = max(london_start, ny_start)
+    overlap_end = min(london_end, ny_end)
+
+    if weekday == 6 and minutes < parse_session_minutes(os.getenv("SESSION_SUNDAY_STABILIZE_UNTIL", "21:00")):
+        return {"delta": float(os.getenv("SESSION_SUNDAY_OPEN_PENALTY", "-0.08")), "reason": "sessao domingo abertura instavel"}
+    if weekday == 4 and minutes >= parse_session_minutes(os.getenv("SESSION_FRIDAY_SLOWDOWN_AFTER", "15:00")):
+        return {"delta": float(os.getenv("SESSION_FRIDAY_PENALTY", "-0.06")), "reason": "sexta perto do fechamento"}
+    if overlap_start <= minutes <= overlap_end:
+        return {"delta": float(os.getenv("SESSION_OVERLAP_BONUS", "0.06")), "reason": "sessao Londres/NY a favor"}
+    if in_range(minutes, london_start, london_end):
+        return {"delta": float(os.getenv("SESSION_LONDON_BONUS", "0.03")), "reason": "sessao Londres ativa"}
+    if in_range(minutes, ny_start, ny_end):
+        return {"delta": float(os.getenv("SESSION_NY_BONUS", "0.03")), "reason": "sessao Nova York ativa"}
+    return {"delta": float(os.getenv("SESSION_DEAD_ZONE_PENALTY", "-0.04")), "reason": "horario de menor liquidez"}
+
+
 def is_forex_open(current: datetime, close_hour: int, open_hour: int) -> bool:
     weekday = current.weekday()
     if weekday == 5:
@@ -71,6 +97,15 @@ def truthy(value: object) -> bool:
     if isinstance(value, bool):
         return value
     return str(value or "").strip().lower() in {"1", "true", "yes", "sim", "force"}
+
+
+def parse_session_minutes(value: str) -> int:
+    hour, minute = [int(part) for part in value.split(":", maxsplit=1)]
+    return hour * 60 + minute
+
+
+def in_range(value: int, start: int, end: int) -> bool:
+    return start <= value <= end if start <= end else value >= start or value <= end
 
 
 def get_market_timezone() -> timezone | ZoneInfo:

@@ -21,6 +21,7 @@ from packages.strategy_core.datasets import DatasetStore
 from packages.strategy_core.datasets import Dataset
 from packages.strategy_core.datasets import candles_from_payload
 from packages.strategy_core.market_hours import forex_market_status
+from packages.strategy_core.market_hours import session_confidence_adjustment
 from packages.strategy_core.market_hours import should_skip_forex_scan
 from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.openai_ai import explain_signal
@@ -44,7 +45,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.19.0"
+APP_VERSION = "0.20.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -414,6 +415,7 @@ def check_and_send_latest_alert() -> dict[str, object]:
         timeframe=dataset.timeframe if dataset else "M5",
     )
     signal = apply_stored_mtf_confirmation(signal)
+    signal = apply_session_adjustment(signal)
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
     if not should_send:
         return {"sent": False, "reason": reason, "signal": signal.to_dict()}
@@ -507,6 +509,15 @@ def apply_stored_mtf_confirmation(signal: object) -> object:
             bonus -= float(os.getenv("MTF_CONFLICT_PENALTY", "0.08"))
             reasons.append(f"{timeframe} contra {signal.side}")
     return signal.with_adjustment(bonus, reasons)
+
+
+def apply_session_adjustment(signal: object) -> object:
+    if os.getenv("SESSION_CONFIDENCE_ENABLED", "true").lower() != "true":
+        return signal
+    if getattr(signal, "side", "NO_TRADE") == "NO_TRADE":
+        return signal
+    adjustment = session_confidence_adjustment()
+    return signal.with_adjustment(float(adjustment["delta"]), [str(adjustment["reason"])])
 
 
 def timeframe_bias(candles: list[object]) -> str:

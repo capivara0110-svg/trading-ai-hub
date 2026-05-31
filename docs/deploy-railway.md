@@ -90,6 +90,13 @@ Para alertas em grupo/canal:
 - `MTF_OUTPUTSIZE` opcional, padrao `120`
 - `MTF_CONFIRM_BONUS` opcional, padrao `0.05`
 - `MTF_CONFLICT_PENALTY` opcional, padrao `0.08`
+- `SESSION_CONFIDENCE_ENABLED` opcional, padrao `true`
+- `SESSION_LONDON_START` opcional, padrao `04:00`
+- `SESSION_LONDON_END` opcional, padrao `12:00`
+- `SESSION_NY_START` opcional, padrao `09:00`
+- `SESSION_NY_END` opcional, padrao `17:00`
+- `SESSION_OVERLAP_BONUS` opcional, padrao `0.06`
+- `SESSION_DEAD_ZONE_PENALTY` opcional, padrao `-0.04`
 - `FOREX_MARKET_GUARD` opcional, padrao `true`
 - `FOREX_FRIDAY_CLOSE_HOUR` opcional, padrao `18`
 - `FOREX_SUNDAY_OPEN_HOUR` opcional, padrao `18`
@@ -117,3 +124,5 @@ Por padrao, o job automatico nao busca candles durante o fim de semana do Forex:
 Se `AUTO_SCAN_ENABLED=true`, o proprio servico do Railway executa esse monitor em loop. O cron externo vira opcional.
 
 O multi-timeframe usa os candles de confirmacao definidos em `MTF_CONFIRM_TIMEFRAMES`. Eles ajustam a confianca do sinal M5, sem bloquear totalmente a operacao.
+
+O ajuste de sessao reduz confianca em horarios de menor liquidez e aumenta durante Londres/Nova York. Tambem penaliza sexta fim de tarde e domingo abertura.
