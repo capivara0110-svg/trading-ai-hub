@@ -45,7 +45,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.21.1"
+APP_VERSION = "0.21.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
