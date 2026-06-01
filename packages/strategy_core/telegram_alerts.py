@@ -24,13 +24,14 @@ def telegram_config_status() -> dict[str, object]:
 def format_signal_message(signal: Signal, ai_note: str | None = None) -> str:
     targets = " / ".join(str(target) for target in signal.take_profit) if signal.take_profit else "--"
     reasons = "\n".join(f"- {reason}" for reason in signal.reason)
+    ai_score = f"{round((signal.ml_score or 0) * 100)}%" if signal.ml_score is not None else "--"
     lines = [
         "Trading AI Hub",
         "",
         f"{signal.symbol} {signal.timeframe}",
         f"SINAL: {signal.side}",
-        f"Confianca: {round(signal.confidence * 100)}%",
-        f"IA score: {round((signal.ml_score or 0) * 100)}%" if signal.ml_score is not None else "IA score: --",
+        f"Score final: {round(signal.confidence * 100)}%",
+        f"Composicao: tecnica + IA ({ai_score})",
         "",
         f"Entrada: {signal.entry if signal.entry is not None else '--'}",
         f"Stop: {signal.stop_loss if signal.stop_loss is not None else '--'}",
