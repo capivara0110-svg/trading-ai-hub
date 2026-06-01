@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -69,15 +70,34 @@ def should_send_signal(signal: Signal, state_path: Path) -> tuple[bool, str]:
         return False, f"Confianca abaixo do minimo ({round(min_confidence * 100)}%)."
 
     key = signal_key(signal)
-    last_key = read_last_signal_key(state_path)
-    if key == last_key:
+    state = read_signal_state(state_path)
+    if key == state.get("lastSignalKey"):
         return False, "Sinal ja enviado anteriormente."
+    if daily_signal_limit_reached(state):
+        return False, "Limite diario de sinais do Telegram atingido."
+    cooldown_ok, cooldown_reason = signal_cooldown_ok(state)
+    if not cooldown_ok:
+        return False, cooldown_reason
     return True, key
 
 
 def mark_signal_sent(signal: Signal, state_path: Path) -> None:
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps({"lastSignalKey": signal_key(signal)}, indent=2), encoding="utf-8")
+    now = datetime.now(timezone.utc)
+    state = read_signal_state(state_path)
+    today = now.date().isoformat()
+    sent_today = int(state.get("sentToday") or 0)
+    if state.get("sentDay") != today:
+        sent_today = 0
+    payload = {
+        "lastSignalKey": signal_key(signal),
+        "lastSignalAt": now.isoformat(timespec="seconds"),
+        "lastSide": signal.side,
+        "lastSymbol": signal.symbol,
+        "sentDay": today,
+        "sentToday": sent_today + 1,
+    }
+    state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def signal_key(signal: Signal) -> str:
@@ -93,12 +113,41 @@ def signal_key(signal: Signal) -> str:
     )
 
 
-def read_last_signal_key(state_path: Path) -> str | None:
+def read_signal_state(state_path: Path) -> dict[str, object]:
     if not state_path.exists():
-        return None
+        return {}
     try:
         payload = json.loads(state_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return None
-    value = payload.get("lastSignalKey")
-    return str(value) if value else None
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def signal_cooldown_ok(state: dict[str, object]) -> tuple[bool, str]:
+    minutes = int(os.getenv("TELEGRAM_SIGNAL_COOLDOWN_MINUTES", "60"))
+    if minutes <= 0:
+        return True, "cooldown desativado"
+    raw = state.get("lastSignalAt")
+    if not raw:
+        return True, "sem envio anterior"
+    try:
+        last_sent = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return True, "estado anterior invalido"
+    if last_sent.tzinfo is None:
+        last_sent = last_sent.replace(tzinfo=timezone.utc)
+    elapsed = datetime.now(timezone.utc) - last_sent
+    remaining = int((minutes * 60 - elapsed.total_seconds()) // 60) + 1
+    if remaining > 0:
+        return False, f"Aguardando cooldown do Telegram ({remaining} min)."
+    return True, "cooldown liberado"
+
+
+def daily_signal_limit_reached(state: dict[str, object]) -> bool:
+    limit = int(os.getenv("TELEGRAM_MAX_SIGNALS_PER_DAY", "4"))
+    if limit <= 0:
+        return False
+    today = datetime.now(timezone.utc).date().isoformat()
+    if state.get("sentDay") != today:
+        return False
+    return int(state.get("sentToday") or 0) >= limit
