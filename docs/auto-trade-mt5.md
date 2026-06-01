@@ -58,3 +58,45 @@ POST /execution/result
 ```
 
 Use primeiro somente em conta demo. O EA deve recusar ordem expirada, ordem sem stop ou ordem com preco atual distante da entrada.
+
+## Instalar o EA no MT5
+
+Arquivo do robo:
+
+```text
+mt5/TradingAiHubBridgeEA.mq5
+```
+
+Passos:
+
+1. Abra o MetaTrader 5.
+2. Va em `Arquivo > Abrir Pasta de Dados`.
+3. Entre em `MQL5/Experts`.
+4. Copie `TradingAiHubBridgeEA.mq5` para essa pasta.
+5. Abra o MetaEditor e compile o arquivo.
+6. No MT5, va em `Ferramentas > Opcoes > Expert Advisors`.
+7. Marque `Permitir WebRequest para URLs listadas`.
+8. Adicione:
+
+```text
+https://trading-ai-hub-production.up.railway.app
+```
+
+9. Arraste o EA para o grafico do `EURUSD`.
+10. Preencha:
+
+```text
+InpExecutionSecret = mesmo valor do EXECUTION_SECRET no Railway
+InpExpectedApiSymbol = EURUSD
+InpTradeSymbol = deixe vazio para usar o simbolo do grafico
+InpDemoOnly = true
+```
+
+Se sua corretora usa sufixo no ativo, como `EURUSDm`, coloque:
+
+```text
+InpTradeSymbol = EURUSDm
+InpExpectedApiSymbol = EURUSD
+```
+
+O EA consulta a API a cada 2 segundos. Quando houver ordem pendente valida, ele reserva a ordem, confere preco e abre em conta demo.
