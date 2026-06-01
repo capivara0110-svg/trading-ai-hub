@@ -16,9 +16,9 @@ def execution_status(state_path: Path) -> dict[str, object]:
         "enabled": auto_trade_enabled(),
         "mode": os.getenv("AUTO_TRADE_MODE", "DEMO_ONLY"),
         "configured": bool(os.getenv("EXECUTION_SECRET")),
-        "lot": float(os.getenv("AUTO_TRADE_LOT", "0.01")),
-        "maxOrdersPerDay": int(os.getenv("AUTO_TRADE_MAX_ORDERS_PER_DAY", "3")),
-        "ttlSeconds": int(os.getenv("AUTO_TRADE_ORDER_TTL_SECONDS", "60")),
+        "lot": env_float("AUTO_TRADE_LOT", 0.01),
+        "maxOrdersPerDay": env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 3),
+        "ttlSeconds": env_int("AUTO_TRADE_ORDER_TTL_SECONDS", 60),
         "pendingOrder": active_order(order),
     }
 
@@ -31,7 +31,7 @@ def create_pending_order(signal: Signal, state_path: Path, candle_time: str | No
     if signal.entry is None or signal.stop_loss is None or not signal.take_profit:
         return {"created": False, "reason": "sinal sem entrada, stop ou alvo"}
 
-    min_confidence = float(os.getenv("AUTO_TRADE_MIN_CONFIDENCE", "0.75"))
+    min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.75)
     if signal.confidence < min_confidence:
         return {"created": False, "reason": f"score abaixo do minimo ({round(min_confidence * 100)}%)"}
 
@@ -43,7 +43,7 @@ def create_pending_order(signal: Signal, state_path: Path, candle_time: str | No
         return {"created": False, "reason": "limite diario de ordens atingido"}
 
     now = datetime.now(timezone.utc)
-    ttl_seconds = int(os.getenv("AUTO_TRADE_ORDER_TTL_SECONDS", "60"))
+    ttl_seconds = env_int("AUTO_TRADE_ORDER_TTL_SECONDS", 60)
     order = {
         "id": uuid.uuid4().hex,
         "status": "PENDING",
@@ -53,12 +53,12 @@ def create_pending_order(signal: Signal, state_path: Path, candle_time: str | No
         "symbol": signal.symbol,
         "timeframe": signal.timeframe,
         "side": signal.side,
-        "lot": float(os.getenv("AUTO_TRADE_LOT", "0.01")),
+        "lot": env_float("AUTO_TRADE_LOT", 0.01),
         "entry": signal.entry,
         "stopLoss": signal.stop_loss,
         "takeProfit": signal.take_profit[0],
         "takeProfit2": signal.take_profit[1] if len(signal.take_profit) > 1 else None,
-        "maxEntryDeviationPips": float(os.getenv("AUTO_TRADE_MAX_ENTRY_DEVIATION_PIPS", "1.5")),
+        "maxEntryDeviationPips": env_float("AUTO_TRADE_MAX_ENTRY_DEVIATION_PIPS", 1.5),
         "confidence": signal.confidence,
         "mlScore": signal.ml_score,
         "signalCandleTime": candle_time,
@@ -143,7 +143,7 @@ def active_order(order: dict[str, object] | None) -> dict[str, object] | None:
 
 
 def daily_order_limit_reached(state: dict[str, object]) -> bool:
-    limit = int(os.getenv("AUTO_TRADE_MAX_ORDERS_PER_DAY", "3"))
+    limit = env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 3)
     if limit <= 0:
         return False
     today = datetime.now(timezone.utc).date().isoformat()
@@ -184,3 +184,27 @@ def parse_datetime(value: object) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def env_int(name: str, default: int) -> int:
+    raw = normalized_env(name)
+    if raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def env_float(name: str, default: float) -> float:
+    raw = normalized_env(name).replace(",", ".")
+    if raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def normalized_env(name: str) -> str:
+    return str(os.getenv(name, "")).strip().strip('"').strip("'")
