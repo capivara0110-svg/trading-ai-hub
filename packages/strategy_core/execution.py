@@ -34,6 +34,9 @@ def create_pending_order(signal: Signal, state_path: Path, candle_time: str | No
     min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.75)
     if signal.confidence < min_confidence:
         return {"created": False, "reason": f"score abaixo do minimo ({round(min_confidence * 100)}%)"}
+    news_blocked, news_reason = news_block_active()
+    if news_blocked:
+        return {"created": False, "reason": news_reason}
     passed_quality, quality_reason = execution_quality_gate(signal)
     if not passed_quality:
         return {"created": False, "reason": quality_reason}
@@ -90,6 +93,20 @@ def execution_quality_gate(signal: Signal) -> tuple[bool, str]:
             return False, "sem confirmacao M15/H1 a favor"
 
     return True, "qualidade aprovada"
+
+
+def news_block_active() -> tuple[bool, str]:
+    if env_bool("AUTO_TRADE_NEWS_BLOCK_ENABLED", False):
+        return True, os.getenv("AUTO_TRADE_NEWS_BLOCK_REASON", "auto trade bloqueado por noticia")
+
+    raw_until = normalized_env("AUTO_TRADE_NEWS_BLOCK_UNTIL")
+    if raw_until == "":
+        return False, "sem bloqueio de noticia"
+    block_until = parse_datetime(raw_until)
+    if block_until and datetime.now(timezone.utc) < block_until:
+        reason = os.getenv("AUTO_TRADE_NEWS_BLOCK_REASON", "auto trade pausado por janela de noticia")
+        return True, f"{reason} ate {block_until.isoformat(timespec='minutes')}"
+    return False, "bloqueio de noticia expirado"
 
 
 def pending_order(state_path: Path) -> dict[str, object]:

@@ -14,6 +14,10 @@ input string InpTradeSymbol = "";
 input int    InpPollSeconds = 2;
 input int    InpRequestTimeoutMs = 5000;
 input int    InpMaxDeviationPoints = 20;
+input double InpMaxSpreadPips = 1.2;
+input bool   InpBreakEvenEnabled = true;
+input double InpBreakEvenTriggerPips = 3.0;
+input double InpBreakEvenOffsetPips = 0.1;
 input ulong  InpMagicNumber = 240601;
 input bool   InpDemoOnly = true;
 
@@ -50,6 +54,8 @@ void OnDeinit(const int reason)
 
 void OnTimer()
 {
+   ManageBreakEven();
+
    if(TimeCurrent() - lastPollAt < InpPollSeconds)
       return;
    lastPollAt = TimeCurrent();
@@ -112,7 +118,17 @@ void PollPendingOrder()
       return;
    }
 
-   double currentPrice = side == "BUY" ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
+   double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+   double spreadPips = (ask - bid) / PipSize(symbol);
+   if(spreadPips > InpMaxSpreadPips)
+   {
+      Print("Trading AI Hub: spread alto. spreadPips=", DoubleToString(spreadPips, 2));
+      SendResult(orderId, "REJECTED", 0, 0.0, "spread too high");
+      return;
+   }
+
+   double currentPrice = side == "BUY" ? ask : bid;
    if(currentPrice <= 0 || entry <= 0 || stopLoss <= 0 || takeProfit <= 0)
    {
       SendResult(orderId, "REJECTED", 0, 0.0, "invalid price, stop or target");
@@ -149,6 +165,58 @@ void PollPendingOrder()
    string msg = "trade failed retcode=" + IntegerToString((int)trade.ResultRetcode()) + " " + trade.ResultRetcodeDescription();
    Print("Trading AI Hub: ", msg);
    SendResult(orderId, "ERROR", 0, currentPrice, msg);
+}
+
+void ManageBreakEven()
+{
+   if(!InpBreakEvenEnabled)
+      return;
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+         continue;
+
+      long type = PositionGetInteger(POSITION_TYPE);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double stopLoss = PositionGetDouble(POSITION_SL);
+      double takeProfit = PositionGetDouble(POSITION_TP);
+      double pip = PipSize(symbol);
+      double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+      double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+
+      if(type == POSITION_TYPE_BUY)
+      {
+         double profitPips = (bid - openPrice) / pip;
+         double newStop = NormalizeDouble(openPrice + InpBreakEvenOffsetPips * pip, digits);
+         if(profitPips >= InpBreakEvenTriggerPips && (stopLoss == 0.0 || stopLoss < newStop) && newStop < bid)
+         {
+            if(trade.PositionModify(ticket, newStop, takeProfit))
+               Print("Trading AI Hub: break-even BUY aplicado. ticket=", ticket, " SL=", DoubleToString(newStop, digits));
+            else
+               Print("Trading AI Hub: falha break-even BUY. retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+         }
+      }
+
+      if(type == POSITION_TYPE_SELL)
+      {
+         double profitPips = (openPrice - ask) / pip;
+         double newStop = NormalizeDouble(openPrice - InpBreakEvenOffsetPips * pip, digits);
+         if(profitPips >= InpBreakEvenTriggerPips && (stopLoss == 0.0 || stopLoss > newStop) && newStop > ask)
+         {
+            if(trade.PositionModify(ticket, newStop, takeProfit))
+               Print("Trading AI Hub: break-even SELL aplicado. ticket=", ticket, " SL=", DoubleToString(newStop, digits));
+            else
+               Print("Trading AI Hub: falha break-even SELL. retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+         }
+      }
+   }
 }
 
 bool ClaimOrder(const string orderId)

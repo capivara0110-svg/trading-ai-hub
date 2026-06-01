@@ -21,6 +21,9 @@ Fluxo inicial para conta demo:
 - `AUTO_TRADE_ORDER_TTL_SECONDS=60`
 - `AUTO_TRADE_MAX_ENTRY_DEVIATION_PIPS=1.5`
 - `AUTO_TRADE_MAX_ORDERS_PER_DAY=3`
+- `AUTO_TRADE_NEWS_BLOCK_ENABLED=false`
+- `AUTO_TRADE_NEWS_BLOCK_UNTIL=` vazio quando nao houver noticia
+- `AUTO_TRADE_NEWS_BLOCK_REASON=` opcional
 
 ## Endpoints
 
@@ -74,6 +77,24 @@ Por padrao, a API so cria ordem pendente automatica quando:
 
 Isso reduz entradas em lateralidade e evita que um alerta experimental vire ordem real/demo sem confirmacao suficiente.
 
+## Bloqueio manual de noticia
+
+Para pausar o auto trade em horario de noticia forte, use uma destas opcoes no Railway:
+
+```text
+AUTO_TRADE_NEWS_BLOCK_ENABLED=true
+AUTO_TRADE_NEWS_BLOCK_REASON=noticia forte
+```
+
+ou bloqueie ate um horario UTC especifico:
+
+```text
+AUTO_TRADE_NEWS_BLOCK_UNTIL=2026-06-01T19:30:00+00:00
+AUTO_TRADE_NEWS_BLOCK_REASON=noticia forte EUR/USD
+```
+
+Quando o bloqueio esta ativo, o Telegram pode continuar recebendo sinal, mas a API nao cria ordem pendente para o MT5.
+
 ## Instalar o EA no MT5
 
 Arquivo do robo:
@@ -105,6 +126,10 @@ InpExecutionSecret = mesmo valor do EXECUTION_SECRET no Railway
 InpExpectedApiSymbol = EURUSD
 InpTradeSymbol = deixe vazio para usar o simbolo do grafico
 InpDemoOnly = true
+InpMaxSpreadPips = 1.2
+InpBreakEvenEnabled = true
+InpBreakEvenTriggerPips = 3.0
+InpBreakEvenOffsetPips = 0.1
 ```
 
 Se sua corretora usa sufixo no ativo, como `EURUSDm`, coloque:
@@ -115,3 +140,5 @@ InpExpectedApiSymbol = EURUSD
 ```
 
 O EA consulta a API a cada 2 segundos. Quando houver ordem pendente valida, ele reserva a ordem, confere preco e abre em conta demo.
+
+Antes de abrir, o EA tambem bloqueia spread alto. Depois de abrir, se a posicao andar `InpBreakEvenTriggerPips` a favor, ele move o stop para a entrada com pequeno offset definido em `InpBreakEvenOffsetPips`.
