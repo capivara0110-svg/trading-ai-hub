@@ -34,6 +34,9 @@ def create_pending_order(signal: Signal, state_path: Path, candle_time: str | No
     min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.75)
     if signal.confidence < min_confidence:
         return {"created": False, "reason": f"score abaixo do minimo ({round(min_confidence * 100)}%)"}
+    passed_quality, quality_reason = execution_quality_gate(signal)
+    if not passed_quality:
+        return {"created": False, "reason": quality_reason}
 
     state = read_execution_state(state_path)
     current = state.get("order") if isinstance(state.get("order"), dict) else None
@@ -68,6 +71,25 @@ def create_pending_order(signal: Signal, state_path: Path, candle_time: str | No
     increment_daily_count(state, now)
     write_execution_state(state_path, state)
     return {"created": True, "order": order}
+
+
+def execution_quality_gate(signal: Signal) -> tuple[bool, str]:
+    min_ml_score = env_float("AUTO_TRADE_MIN_ML_SCORE", 0.45)
+    if signal.ml_score is not None and signal.ml_score < min_ml_score:
+        return False, f"score IA abaixo do minimo ({round(min_ml_score * 100)}%)"
+
+    reasons = [str(reason).upper() for reason in signal.reason]
+    if env_bool("AUTO_TRADE_BLOCK_MTF_CONFLICT", True):
+        conflict = f"CONTRA {signal.side}".upper()
+        if any(conflict in reason for reason in reasons):
+            return False, "confirmacao MTF contra o sinal"
+
+    if env_bool("AUTO_TRADE_REQUIRE_MTF_CONFIRMATION", True):
+        confirmation = f"CONFIRMA {signal.side}".upper()
+        if not any(confirmation in reason for reason in reasons):
+            return False, "sem confirmacao M15/H1 a favor"
+
+    return True, "qualidade aprovada"
 
 
 def pending_order(state_path: Path) -> dict[str, object]:
@@ -204,6 +226,13 @@ def env_float(name: str, default: float) -> float:
         return float(raw)
     except ValueError:
         return default
+
+
+def env_bool(name: str, default: bool) -> bool:
+    raw = normalized_env(name).lower()
+    if raw == "":
+        return default
+    return raw in {"1", "true", "yes", "sim", "on"}
 
 
 def normalized_env(name: str) -> str:

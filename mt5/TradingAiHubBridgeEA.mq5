@@ -190,7 +190,7 @@ int HttpGet(const string url, string &response)
    string headers = "";
    string resultHeaders = "";
    ResetLastError();
-   int status = WebRequest("GET", url, headers, InpRequestTimeoutMs, data, result, resultHeaders);
+   int status = WebRequest("GET", url, "", "", InpRequestTimeoutMs, data, 0, result, resultHeaders);
    response = CharArrayToString(result, 0, -1, CP_UTF8);
    if(status == -1)
       Print("Trading AI Hub: WebRequest GET erro=", GetLastError(), ". Libere a URL em Tools > Options > Expert Advisors.");

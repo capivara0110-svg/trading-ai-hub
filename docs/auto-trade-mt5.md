@@ -15,6 +15,9 @@ Fluxo inicial para conta demo:
 - `AUTO_TRADE_MODE=DEMO_ONLY`
 - `AUTO_TRADE_LOT=0.01`
 - `AUTO_TRADE_MIN_CONFIDENCE=0.75`
+- `AUTO_TRADE_MIN_ML_SCORE=0.45`
+- `AUTO_TRADE_REQUIRE_MTF_CONFIRMATION=true`
+- `AUTO_TRADE_BLOCK_MTF_CONFLICT=true`
 - `AUTO_TRADE_ORDER_TTL_SECONDS=60`
 - `AUTO_TRADE_MAX_ENTRY_DEVIATION_PIPS=1.5`
 - `AUTO_TRADE_MAX_ORDERS_PER_DAY=3`
@@ -58,6 +61,18 @@ POST /execution/result
 ```
 
 Use primeiro somente em conta demo. O EA deve recusar ordem expirada, ordem sem stop ou ordem com preco atual distante da entrada.
+
+## Filtro de qualidade para auto trade
+
+O Telegram pode receber sinais mais amplos, mas o MT5 deve ser mais exigente.
+Por padrao, a API so cria ordem pendente automatica quando:
+
+- o score final passa de `AUTO_TRADE_MIN_CONFIDENCE`;
+- o score da IA passa de `AUTO_TRADE_MIN_ML_SCORE`;
+- existe confirmacao M15 ou H1 a favor;
+- nao existe M15 ou H1 contra o sinal.
+
+Isso reduz entradas em lateralidade e evita que um alerta experimental vire ordem real/demo sem confirmacao suficiente.
 
 ## Instalar o EA no MT5
 
