@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +24,12 @@ from packages.strategy_core.datasets import candles_from_payload
 from packages.strategy_core.market_hours import forex_market_status
 from packages.strategy_core.market_hours import session_confidence_adjustment
 from packages.strategy_core.market_hours import should_skip_forex_scan
+from packages.strategy_core.execution import authorize_execution
+from packages.strategy_core.execution import claim_order
+from packages.strategy_core.execution import create_pending_order
+from packages.strategy_core.execution import execution_status
+from packages.strategy_core.execution import mark_order_result
+from packages.strategy_core.execution import pending_order
 from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.openai_ai import explain_signal
 from packages.strategy_core.openai_ai import openai_config_status
@@ -45,7 +52,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.21.0"
+APP_VERSION = "0.22.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -57,6 +64,7 @@ TELEGRAM_ALERT_STATE = ROOT / "data" / "uploads" / "telegram_alert_state.json"
 TELEGRAM_STATUS_STATE = ROOT / "data" / "uploads" / "telegram_status_state.json"
 JOB_STATE = ROOT / "data" / "uploads" / "job_state.json"
 SIGNAL_HISTORY = ROOT / "data" / "uploads" / "signal_history.json"
+EXECUTION_STATE = ROOT / "data" / "uploads" / "execution_state.json"
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -137,6 +145,19 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/signals/history":
             self.send_json(current_signal_history())
+            return
+
+        if parsed.path == "/execution/status":
+            self.send_json(execution_status(EXECUTION_STATE))
+            return
+
+        if parsed.path == "/execution/pending":
+            query = parse_qs(parsed.query)
+            payload = {"secret": (query.get("secret") or [""])[0]}
+            if not authorize_execution(self.headers, payload):
+                self.send_json({"error": "execucao nao autorizada"}, status=401)
+                return
+            self.send_json(pending_order(EXECUTION_STATE))
             return
 
         if self.send_static(parsed.path):
@@ -251,6 +272,22 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 
             if parsed.path == "/ai/explain-latest-signal":
                 self.send_json(explain_signal(latest_signal()))
+                return
+
+            if parsed.path == "/execution/claim":
+                payload = self.read_json(max_size=4_000)
+                if not authorize_execution(self.headers, payload):
+                    self.send_json({"error": "execucao nao autorizada"}, status=401)
+                    return
+                self.send_json(claim_order(EXECUTION_STATE, str(payload.get("id") or "")))
+                return
+
+            if parsed.path == "/execution/result":
+                payload = self.read_json(max_size=10_000)
+                if not authorize_execution(self.headers, payload):
+                    self.send_json({"error": "execucao nao autorizada"}, status=401)
+                    return
+                self.send_json(mark_order_result(EXECUTION_STATE, str(payload.get("id") or ""), payload))
                 return
 
             if parsed.path == "/jobs/check-alerts":
@@ -422,7 +459,14 @@ def check_and_send_latest_alert() -> dict[str, object]:
     result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal)))
     mark_signal_sent(signal, TELEGRAM_ALERT_STATE)
     history_item = record_signal(signal, SIGNAL_HISTORY, candles[-1].time if candles else None)
-    return {"sent": True, "telegramOk": bool(result.get("ok")), "signal": signal.to_dict(), "history": history_item}
+    execution = create_pending_order(signal, EXECUTION_STATE, candles[-1].time if candles else None)
+    return {
+        "sent": True,
+        "telegramOk": bool(result.get("ok")),
+        "signal": signal.to_dict(),
+        "history": history_item,
+        "execution": execution,
+    }
 
 
 def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, object]:

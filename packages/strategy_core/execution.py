@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+import json
+import os
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from packages.strategy_core.signals import Signal
+
+
+def execution_status(state_path: Path) -> dict[str, object]:
+    state = read_execution_state(state_path)
+    order = state.get("order") if isinstance(state.get("order"), dict) else None
+    return {
+        "enabled": auto_trade_enabled(),
+        "mode": os.getenv("AUTO_TRADE_MODE", "DEMO_ONLY"),
+        "configured": bool(os.getenv("EXECUTION_SECRET")),
+        "lot": float(os.getenv("AUTO_TRADE_LOT", "0.01")),
+        "maxOrdersPerDay": int(os.getenv("AUTO_TRADE_MAX_ORDERS_PER_DAY", "3")),
+        "ttlSeconds": int(os.getenv("AUTO_TRADE_ORDER_TTL_SECONDS", "60")),
+        "pendingOrder": active_order(order),
+    }
+
+
+def create_pending_order(signal: Signal, state_path: Path, candle_time: str | None = None) -> dict[str, object]:
+    if not auto_trade_enabled():
+        return {"created": False, "reason": "auto trade desativado"}
+    if signal.side == "NO_TRADE":
+        return {"created": False, "reason": "sem sinal operacional"}
+    if signal.entry is None or signal.stop_loss is None or not signal.take_profit:
+        return {"created": False, "reason": "sinal sem entrada, stop ou alvo"}
+
+    min_confidence = float(os.getenv("AUTO_TRADE_MIN_CONFIDENCE", "0.75"))
+    if signal.confidence < min_confidence:
+        return {"created": False, "reason": f"score abaixo do minimo ({round(min_confidence * 100)}%)"}
+
+    state = read_execution_state(state_path)
+    current = state.get("order") if isinstance(state.get("order"), dict) else None
+    if active_order(current):
+        return {"created": False, "reason": "ja existe ordem pendente ativa", "order": current}
+    if daily_order_limit_reached(state):
+        return {"created": False, "reason": "limite diario de ordens atingido"}
+
+    now = datetime.now(timezone.utc)
+    ttl_seconds = int(os.getenv("AUTO_TRADE_ORDER_TTL_SECONDS", "60"))
+    order = {
+        "id": uuid.uuid4().hex,
+        "status": "PENDING",
+        "createdAt": now.isoformat(timespec="seconds"),
+        "expiresAt": (now + timedelta(seconds=max(10, ttl_seconds))).isoformat(timespec="seconds"),
+        "mode": os.getenv("AUTO_TRADE_MODE", "DEMO_ONLY"),
+        "symbol": signal.symbol,
+        "timeframe": signal.timeframe,
+        "side": signal.side,
+        "lot": float(os.getenv("AUTO_TRADE_LOT", "0.01")),
+        "entry": signal.entry,
+        "stopLoss": signal.stop_loss,
+        "takeProfit": signal.take_profit[0],
+        "takeProfit2": signal.take_profit[1] if len(signal.take_profit) > 1 else None,
+        "maxEntryDeviationPips": float(os.getenv("AUTO_TRADE_MAX_ENTRY_DEVIATION_PIPS", "1.5")),
+        "confidence": signal.confidence,
+        "mlScore": signal.ml_score,
+        "signalCandleTime": candle_time,
+        "reason": signal.reason,
+    }
+    state["order"] = order
+    increment_daily_count(state, now)
+    write_execution_state(state_path, state)
+    return {"created": True, "order": order}
+
+
+def pending_order(state_path: Path) -> dict[str, object]:
+    state = read_execution_state(state_path)
+    order = state.get("order") if isinstance(state.get("order"), dict) else None
+    active = active_order(order)
+    if active and active.get("status") == "PENDING":
+        return {"enabled": auto_trade_enabled(), "order": active}
+    return {"enabled": auto_trade_enabled(), "order": None}
+
+
+def claim_order(state_path: Path, order_id: str) -> dict[str, object]:
+    state = read_execution_state(state_path)
+    order = state.get("order") if isinstance(state.get("order"), dict) else None
+    active = active_order(order)
+    if not active:
+        return {"claimed": False, "reason": "nenhuma ordem pendente ativa"}
+    if active.get("status") != "PENDING":
+        return {"claimed": False, "reason": "ordem ja reservada"}
+    if str(active.get("id")) != order_id:
+        return {"claimed": False, "reason": "ordem nao encontrada"}
+    active["status"] = "CLAIMED"
+    active["claimedAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    state["order"] = active
+    write_execution_state(state_path, state)
+    return {"claimed": True, "order": active}
+
+
+def mark_order_result(state_path: Path, order_id: str, payload: dict[str, object]) -> dict[str, object]:
+    state = read_execution_state(state_path)
+    order = state.get("order") if isinstance(state.get("order"), dict) else None
+    if not order or str(order.get("id")) != order_id:
+        return {"updated": False, "reason": "ordem nao encontrada"}
+    status = str(payload.get("status") or "EXECUTED").upper()
+    if status not in {"EXECUTED", "REJECTED", "CANCELLED", "ERROR"}:
+        status = "EXECUTED"
+    order["status"] = status
+    order["updatedAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    order["brokerTicket"] = payload.get("brokerTicket")
+    order["brokerMessage"] = payload.get("message")
+    order["fillPrice"] = payload.get("fillPrice")
+    state["order"] = order
+    write_execution_state(state_path, state)
+    return {"updated": True, "order": order}
+
+
+def authorize_execution(headers: object, payload: dict[str, object] | None = None) -> bool:
+    expected = os.getenv("EXECUTION_SECRET")
+    if not expected:
+        return False
+    provided = ""
+    if hasattr(headers, "get"):
+        provided = str(headers.get("X-Execution-Secret") or "")
+    if not provided and payload:
+        provided = str(payload.get("secret") or "")
+    return provided == expected
+
+
+def auto_trade_enabled() -> bool:
+    return os.getenv("AUTO_TRADE_ENABLED", "false").lower() == "true"
+
+
+def active_order(order: dict[str, object] | None) -> dict[str, object] | None:
+    if not order:
+        return None
+    if str(order.get("status") or "") not in {"PENDING", "CLAIMED"}:
+        return None
+    expires_at = parse_datetime(order.get("expiresAt"))
+    if expires_at and datetime.now(timezone.utc) > expires_at:
+        order["status"] = "EXPIRED"
+        return None
+    return order
+
+
+def daily_order_limit_reached(state: dict[str, object]) -> bool:
+    limit = int(os.getenv("AUTO_TRADE_MAX_ORDERS_PER_DAY", "3"))
+    if limit <= 0:
+        return False
+    today = datetime.now(timezone.utc).date().isoformat()
+    if state.get("orderDay") != today:
+        return False
+    return int(state.get("ordersToday") or 0) >= limit
+
+
+def increment_daily_count(state: dict[str, object], now: datetime) -> None:
+    today = now.date().isoformat()
+    count = int(state.get("ordersToday") or 0)
+    if state.get("orderDay") != today:
+        count = 0
+    state["orderDay"] = today
+    state["ordersToday"] = count + 1
+
+
+def read_execution_state(state_path: Path) -> dict[str, object]:
+    if not state_path.exists():
+        return {}
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def write_execution_state(state_path: Path, payload: dict[str, object]) -> None:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def parse_datetime(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
