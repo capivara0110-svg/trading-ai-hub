@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from packages.strategy_core.market_hours import get_market_timezone
 from packages.strategy_core.signals import Signal
 
 
@@ -85,7 +86,7 @@ def mark_signal_sent(signal: Signal, state_path: Path) -> None:
     state_path.parent.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     state = read_signal_state(state_path)
-    today = now.date().isoformat()
+    today = local_signal_day()
     sent_today = int(state.get("sentToday") or 0)
     if state.get("sentDay") != today:
         sent_today = 0
@@ -147,7 +148,11 @@ def daily_signal_limit_reached(state: dict[str, object]) -> bool:
     limit = int(os.getenv("TELEGRAM_MAX_SIGNALS_PER_DAY", "4"))
     if limit <= 0:
         return False
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = local_signal_day()
     if state.get("sentDay") != today:
         return False
     return int(state.get("sentToday") or 0) >= limit
+
+
+def local_signal_day() -> str:
+    return datetime.now(get_market_timezone()).date().isoformat()

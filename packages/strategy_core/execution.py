@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from packages.strategy_core.market_hours import get_market_timezone
 from packages.strategy_core.signals import Signal
 
 
@@ -185,14 +186,14 @@ def daily_order_limit_reached(state: dict[str, object]) -> bool:
     limit = env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 3)
     if limit <= 0:
         return False
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = local_execution_day()
     if state.get("orderDay") != today:
         return False
     return int(state.get("ordersToday") or 0) >= limit
 
 
 def increment_daily_count(state: dict[str, object], now: datetime) -> None:
-    today = now.date().isoformat()
+    today = local_execution_day()
     count = int(state.get("ordersToday") or 0)
     if state.get("orderDay") != today:
         count = 0
@@ -254,3 +255,7 @@ def env_bool(name: str, default: bool) -> bool:
 
 def normalized_env(name: str) -> str:
     return str(os.getenv(name, "")).strip().strip('"').strip("'")
+
+
+def local_execution_day() -> str:
+    return datetime.now(get_market_timezone()).date().isoformat()
