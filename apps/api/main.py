@@ -54,7 +54,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.25.3"
+APP_VERSION = "0.25.5"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -420,7 +420,7 @@ def start_auto_scan_worker() -> None:
 
 
 def auto_scan_loop() -> None:
-    interval = int(os.getenv("AUTO_SCAN_INTERVAL_SECONDS", "600"))
+    interval = max(900, int(os.getenv("AUTO_SCAN_INTERVAL_SECONDS", "900")))
     initial_delay = int(os.getenv("AUTO_SCAN_INITIAL_DELAY_SECONDS", "20"))
     print(f"Auto scan enabled. First run in {initial_delay}s, interval {interval}s.", flush=True)
     time.sleep(max(0, initial_delay))
