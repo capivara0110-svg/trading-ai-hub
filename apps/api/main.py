@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
 from urllib.parse import urlparse
@@ -39,7 +39,6 @@ from packages.strategy_core.signal_history import evaluate_history
 from packages.strategy_core.signal_history import history_summary
 from packages.strategy_core.signal_history import load_history
 from packages.strategy_core.signal_history import record_signal
-from packages.strategy_core.signal_history import signal_key
 from packages.strategy_core.signals import detect_forex_signal
 from packages.strategy_core.telegram_alerts import format_signal_message
 from packages.strategy_core.telegram_alerts import mark_signal_sent
@@ -54,7 +53,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.25.0"
+APP_VERSION = "0.24.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -406,7 +405,7 @@ def run_server() -> None:
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8765"))
     start_auto_scan_worker()
-    server = ThreadingHTTPServer((host, port), TradingApiHandler)
+    server = HTTPServer((host, port), TradingApiHandler)
     print(f"Trading AI Hub API running at http://{host}:{port}", flush=True)
     server.serve_forever()
 
@@ -457,28 +456,13 @@ def check_and_send_latest_alert() -> dict[str, object]:
     signal = apply_stored_mtf_confirmation(signal)
     signal = apply_session_adjustment(signal)
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
-    execution = create_execution_for_signal(signal, reason, candles[-1].time if candles else None)
-    history_item = None
     if not should_send:
-        if execution.get("created"):
-            history_item = record_signal(signal, SIGNAL_HISTORY, candles[-1].time if candles else None)
-        return {
-            "sent": False,
-            "reason": reason,
-            "signal": signal.to_dict(),
-            "history": history_item,
-            "execution": execution,
-        }
-    ai_allowed = bool(execution.get("created"))
-    result = send_telegram_message(
-        format_signal_message(
-            signal,
-            ai_note=optional_ai_note(signal, ai_allowed),
-            execution_note=format_execution_note(execution),
-        )
-    )
+        return {"sent": False, "reason": reason, "signal": signal.to_dict()}
+    ai_allowed, _ = pending_order_eligibility(signal, EXECUTION_STATE)
+    result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal, ai_allowed)))
     mark_signal_sent(signal, TELEGRAM_ALERT_STATE)
     history_item = record_signal(signal, SIGNAL_HISTORY, candles[-1].time if candles else None)
+    execution = create_pending_order(signal, EXECUTION_STATE, candles[-1].time if candles else None)
     return {
         "sent": True,
         "telegramOk": bool(result.get("ok")),
@@ -486,28 +470,6 @@ def check_and_send_latest_alert() -> dict[str, object]:
         "history": history_item,
         "execution": execution,
     }
-
-
-def create_execution_for_signal(signal: object, telegram_reason: str, candle_time: str | None) -> dict[str, object]:
-    if str(telegram_reason).lower().startswith("sinal ja enviado"):
-        return {"created": False, "reason": "sinal ja processado anteriormente"}
-    if signal_already_recorded(signal):
-        return {"created": False, "reason": "sinal ja registrado no historico"}
-    return create_pending_order(signal, EXECUTION_STATE, candle_time)
-
-
-def format_execution_note(execution: dict[str, object]) -> str:
-    if execution.get("created"):
-        return "MT5: ordem pendente criada para o robo."
-    return f"MT5: nao enviado - {execution.get('reason') or 'filtro operacional'}."
-
-
-def signal_already_recorded(signal: object) -> bool:
-    try:
-        key = signal_key(signal)
-    except AttributeError:
-        return False
-    return any(item.get("key") == key for item in load_history(SIGNAL_HISTORY))
 
 
 def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, object]:
