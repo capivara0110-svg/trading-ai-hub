@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 import time
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
 from urllib.parse import urlparse
@@ -53,7 +54,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.24.0"
+APP_VERSION = "0.25.2"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -398,14 +399,14 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
-        print(f"{self.address_string()} - {format % args}")
+        print(f"{self.address_string()} - {redact_log_line(format % args)}")
 
 
 def run_server() -> None:
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8765"))
     start_auto_scan_worker()
-    server = HTTPServer((host, port), TradingApiHandler)
+    server = ThreadingHTTPServer((host, port), TradingApiHandler)
     print(f"Trading AI Hub API running at http://{host}:{port}", flush=True)
     server.serve_forever()
 
@@ -419,7 +420,7 @@ def start_auto_scan_worker() -> None:
 
 
 def auto_scan_loop() -> None:
-    interval = int(os.getenv("AUTO_SCAN_INTERVAL_SECONDS", "300"))
+    interval = int(os.getenv("AUTO_SCAN_INTERVAL_SECONDS", "600"))
     initial_delay = int(os.getenv("AUTO_SCAN_INITIAL_DELAY_SECONDS", "20"))
     print(f"Auto scan enabled. First run in {initial_delay}s, interval {interval}s.", flush=True)
     time.sleep(max(0, initial_delay))
@@ -432,7 +433,14 @@ def auto_scan_loop() -> None:
             result = {"sent": False, "reason": str(error), "error": str(error)}
             save_job_state("auto-scan-error", result)
             print(f"Auto scan error: {error}", flush=True)
+            if "429" in str(error):
+                time.sleep(max(900, interval))
+                continue
         time.sleep(max(60, interval))
+
+
+def redact_log_line(value: str) -> str:
+    return re.sub(r"(secret=)[^&\s\"]+", r"\1***", value)
 
 
 def latest_signal() -> object:
