@@ -17,6 +17,7 @@ def openai_config_status() -> dict[str, object]:
         "configured": bool(os.getenv("OPENAI_API_KEY")),
         "model": os.getenv("AI_MODEL", DEFAULT_MODEL),
         "telegramExplanation": os.getenv("AI_TELEGRAM_EXPLANATION", "true").lower() != "false",
+        "onlyForAutoTrade": os.getenv("AI_ONLY_FOR_AUTO_TRADE", "true").lower() != "false",
     }
 
 

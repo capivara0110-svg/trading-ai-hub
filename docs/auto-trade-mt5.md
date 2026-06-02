@@ -24,6 +24,7 @@ Fluxo inicial para conta demo:
 - `AUTO_TRADE_NEWS_BLOCK_ENABLED=false`
 - `AUTO_TRADE_NEWS_BLOCK_UNTIL=` vazio quando nao houver noticia
 - `AUTO_TRADE_NEWS_BLOCK_REASON=` opcional
+- `AI_ONLY_FOR_AUTO_TRADE=true`
 
 ## Endpoints
 
@@ -94,6 +95,10 @@ AUTO_TRADE_NEWS_BLOCK_REASON=noticia forte EUR/USD
 ```
 
 Quando o bloqueio esta ativo, o Telegram pode continuar recebendo sinal, mas a API nao cria ordem pendente para o MT5.
+
+## Economia de IA
+
+Com `AI_ONLY_FOR_AUTO_TRADE=true`, a OpenAI so gera leitura explicativa quando o sinal tambem esta elegivel para virar ordem automatica. Sinais fracos continuam podendo aparecer no Telegram, mas sem gastar tokens da IA.
 
 ## Instalar o EA no MT5
 

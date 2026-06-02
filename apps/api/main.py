@@ -29,6 +29,7 @@ from packages.strategy_core.execution import claim_order
 from packages.strategy_core.execution import create_pending_order
 from packages.strategy_core.execution import execution_status
 from packages.strategy_core.execution import mark_order_result
+from packages.strategy_core.execution import pending_order_eligibility
 from packages.strategy_core.execution import pending_order
 from packages.strategy_core.ml_model import train_signal_quality_model
 from packages.strategy_core.openai_ai import explain_signal
@@ -52,7 +53,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.23.1"
+APP_VERSION = "0.24.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -248,7 +249,8 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     symbol=dataset.symbol if dataset else "EURUSD",
                     timeframe=dataset.timeframe if dataset else "M5",
                 )
-                result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal)))
+                ai_allowed, _ = pending_order_eligibility(signal, EXECUTION_STATE)
+                result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal, ai_allowed)))
                 history_item = (
                     record_signal(signal, SIGNAL_HISTORY, candles[-1].time if candles else None)
                     if signal.side != "NO_TRADE"
@@ -456,7 +458,8 @@ def check_and_send_latest_alert() -> dict[str, object]:
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
     if not should_send:
         return {"sent": False, "reason": reason, "signal": signal.to_dict()}
-    result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal)))
+    ai_allowed, _ = pending_order_eligibility(signal, EXECUTION_STATE)
+    result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal, ai_allowed)))
     mark_signal_sent(signal, TELEGRAM_ALERT_STATE)
     history_item = record_signal(signal, SIGNAL_HISTORY, candles[-1].time if candles else None)
     execution = create_pending_order(signal, EXECUTION_STATE, candles[-1].time if candles else None)
@@ -683,8 +686,10 @@ def mark_status_sent_at(value: datetime) -> None:
     )
 
 
-def optional_ai_note(signal: object) -> str | None:
+def optional_ai_note(signal: object, auto_trade_eligible: bool = False) -> str | None:
     if not should_add_ai_to_telegram():
+        return None
+    if os.getenv("AI_ONLY_FOR_AUTO_TRADE", "true").lower() != "false" and not auto_trade_eligible:
         return None
     try:
         explanation = explain_signal(signal)

@@ -25,30 +25,11 @@ def execution_status(state_path: Path) -> dict[str, object]:
 
 
 def create_pending_order(signal: Signal, state_path: Path, candle_time: str | None = None) -> dict[str, object]:
-    if not auto_trade_enabled():
-        return {"created": False, "reason": "auto trade desativado"}
-    if signal.side == "NO_TRADE":
-        return {"created": False, "reason": "sem sinal operacional"}
-    if signal.entry is None or signal.stop_loss is None or not signal.take_profit:
-        return {"created": False, "reason": "sinal sem entrada, stop ou alvo"}
-
-    min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.75)
-    if signal.confidence < min_confidence:
-        return {"created": False, "reason": f"score abaixo do minimo ({round(min_confidence * 100)}%)"}
-    news_blocked, news_reason = news_block_active()
-    if news_blocked:
-        return {"created": False, "reason": news_reason}
-    passed_quality, quality_reason = execution_quality_gate(signal)
-    if not passed_quality:
-        return {"created": False, "reason": quality_reason}
+    allowed, reason = pending_order_eligibility(signal, state_path)
+    if not allowed:
+        return {"created": False, "reason": reason}
 
     state = read_execution_state(state_path)
-    current = state.get("order") if isinstance(state.get("order"), dict) else None
-    if active_order(current):
-        return {"created": False, "reason": "ja existe ordem pendente ativa", "order": current}
-    if daily_order_limit_reached(state):
-        return {"created": False, "reason": "limite diario de ordens atingido"}
-
     now = datetime.now(timezone.utc)
     ttl_seconds = env_int("AUTO_TRADE_ORDER_TTL_SECONDS", 60)
     order = {
@@ -75,6 +56,33 @@ def create_pending_order(signal: Signal, state_path: Path, candle_time: str | No
     increment_daily_count(state, now)
     write_execution_state(state_path, state)
     return {"created": True, "order": order}
+
+
+def pending_order_eligibility(signal: Signal, state_path: Path) -> tuple[bool, str]:
+    if not auto_trade_enabled():
+        return False, "auto trade desativado"
+    if signal.side == "NO_TRADE":
+        return False, "sem sinal operacional"
+    if signal.entry is None or signal.stop_loss is None or not signal.take_profit:
+        return False, "sinal sem entrada, stop ou alvo"
+
+    min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.75)
+    if signal.confidence < min_confidence:
+        return False, f"score abaixo do minimo ({round(min_confidence * 100)}%)"
+    news_blocked, news_reason = news_block_active()
+    if news_blocked:
+        return False, news_reason
+    passed_quality, quality_reason = execution_quality_gate(signal)
+    if not passed_quality:
+        return False, quality_reason
+
+    state = read_execution_state(state_path)
+    current = state.get("order") if isinstance(state.get("order"), dict) else None
+    if active_order(current):
+        return False, "ja existe ordem pendente ativa"
+    if daily_order_limit_reached(state):
+        return False, "limite diario de ordens atingido"
+    return True, "elegivel para auto trade"
 
 
 def execution_quality_gate(signal: Signal) -> tuple[bool, str]:
