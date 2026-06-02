@@ -9,7 +9,6 @@ import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from socketserver import ThreadingMixIn
 from urllib.parse import parse_qs
 from urllib.parse import urlparse
 
@@ -55,7 +54,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.25.4"
+APP_VERSION = "0.25.3"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -73,10 +72,6 @@ CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
 }
-
-
-class TradingThreadingHTTPServer(ThreadingMixIn, HTTPServer):
-    daemon_threads = True
 
 
 class TradingApiHandler(BaseHTTPRequestHandler):
@@ -411,7 +406,7 @@ def run_server() -> None:
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8765"))
     start_auto_scan_worker()
-    server = TradingThreadingHTTPServer((host, port), TradingApiHandler)
+    server = HTTPServer((host, port), TradingApiHandler)
     print(f"Trading AI Hub API running at http://{host}:{port}", flush=True)
     server.serve_forever()
 
