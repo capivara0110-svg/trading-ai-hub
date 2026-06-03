@@ -15,6 +15,9 @@ input int    InpPollSeconds = 5;
 input int    InpRequestTimeoutMs = 5000;
 input int    InpMaxDeviationPoints = 20;
 input double InpMaxSpreadPips = 1.2;
+input bool   InpAllowLateEntryIfRR = true;
+input double InpMinLateEntryRR = 0.80;
+input double InpHardMaxDeviationPips = 5.0;
 input bool   InpBreakEvenEnabled = true;
 input double InpBreakEvenTriggerPips = 3.0;
 input double InpBreakEvenOffsetPips = 0.1;
@@ -138,9 +141,14 @@ void PollPendingOrder()
    double diffPips = MathAbs(currentPrice - entry) / PipSize(symbol);
    if(diffPips > maxDeviationPips)
    {
-      Print("Trading AI Hub: preco longe da entrada. diffPips=", DoubleToString(diffPips, 2));
-      SendResult(orderId, "REJECTED", 0, currentPrice, "price moved too far");
-      return;
+      double rr = RewardRiskRatio(side, currentPrice, stopLoss, takeProfit, symbol);
+      if(!InpAllowLateEntryIfRR || diffPips > InpHardMaxDeviationPips || rr < InpMinLateEntryRR)
+      {
+         Print("Trading AI Hub: preco longe da entrada. diffPips=", DoubleToString(diffPips, 2), " rr=", DoubleToString(rr, 2));
+         SendResult(orderId, "REJECTED", 0, currentPrice, "price moved too far");
+         return;
+      }
+      Print("Trading AI Hub: entrada atrasada aceita por RR. diffPips=", DoubleToString(diffPips, 2), " rr=", DoubleToString(rr, 2));
    }
 
    if(!ClaimOrder(orderId))
@@ -165,6 +173,30 @@ void PollPendingOrder()
    string msg = "trade failed retcode=" + IntegerToString((int)trade.ResultRetcode()) + " " + trade.ResultRetcodeDescription();
    Print("Trading AI Hub: ", msg);
    SendResult(orderId, "ERROR", 0, currentPrice, msg);
+}
+
+double RewardRiskRatio(const string side, const double price, const double stopLoss, const double takeProfit, const string symbol)
+{
+   double pip = PipSize(symbol);
+   if(pip <= 0)
+      return 0.0;
+
+   double risk = 0.0;
+   double reward = 0.0;
+   if(side == "BUY")
+   {
+      risk = price - stopLoss;
+      reward = takeProfit - price;
+   }
+   else if(side == "SELL")
+   {
+      risk = stopLoss - price;
+      reward = price - takeProfit;
+   }
+
+   if(risk <= 0 || reward <= 0)
+      return 0.0;
+   return (reward / pip) / (risk / pip);
 }
 
 void ManageBreakEven()

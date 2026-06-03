@@ -21,6 +21,9 @@ def execution_status(state_path: Path) -> dict[str, object]:
         "maxOrdersPerDay": env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 3),
         "ttlSeconds": env_int("AUTO_TRADE_ORDER_TTL_SECONDS", 60),
         "pendingOrder": active_order(order),
+        "lastOrder": order,
+        "ordersToday": int(state.get("ordersToday") or 0),
+        "orderDay": state.get("orderDay"),
     }
 
 
