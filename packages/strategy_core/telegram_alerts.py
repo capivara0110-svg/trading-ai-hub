@@ -22,7 +22,7 @@ def telegram_config_status() -> dict[str, object]:
     }
 
 
-def format_signal_message(signal: Signal, ai_note: str | None = None) -> str:
+def format_signal_message(signal: Signal, ai_note: str | None = None, execution_note: str | None = None) -> str:
     targets = " / ".join(str(target) for target in signal.take_profit) if signal.take_profit else "--"
     reasons = "\n".join(f"- {reason}" for reason in signal.reason)
     lines = [
@@ -40,6 +40,8 @@ def format_signal_message(signal: Signal, ai_note: str | None = None) -> str:
         "Motivos:",
         reasons or "- sem motivo informado",
     ]
+    if execution_note:
+        lines.extend(["", execution_note.strip()])
     if ai_note:
         lines.extend(["", "Leitura da IA:", ai_note.strip()])
     lines.extend(["", "Aviso: sinal experimental, nao e recomendacao financeira nem garantia de lucro."])

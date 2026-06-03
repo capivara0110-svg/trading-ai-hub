@@ -54,7 +54,7 @@ from packages.strategy_core.validation import run_out_of_sample_validation
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.25.5"
+APP_VERSION = "0.26.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -464,13 +464,28 @@ def check_and_send_latest_alert() -> dict[str, object]:
     signal = apply_stored_mtf_confirmation(signal)
     signal = apply_session_adjustment(signal)
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
+    execution = create_execution_for_signal(signal, reason, candles[-1].time if candles else None)
+    history_item = None
     if not should_send:
-        return {"sent": False, "reason": reason, "signal": signal.to_dict()}
-    ai_allowed, _ = pending_order_eligibility(signal, EXECUTION_STATE)
-    result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal, ai_allowed)))
+        if execution.get("created"):
+            history_item = record_signal(signal, SIGNAL_HISTORY, candles[-1].time if candles else None)
+        return {
+            "sent": False,
+            "reason": reason,
+            "signal": signal.to_dict(),
+            "history": history_item,
+            "execution": execution,
+        }
+    ai_allowed = bool(execution.get("created"))
+    result = send_telegram_message(
+        format_signal_message(
+            signal,
+            ai_note=optional_ai_note(signal, ai_allowed),
+            execution_note=format_execution_note(execution),
+        )
+    )
     mark_signal_sent(signal, TELEGRAM_ALERT_STATE)
     history_item = record_signal(signal, SIGNAL_HISTORY, candles[-1].time if candles else None)
-    execution = create_pending_order(signal, EXECUTION_STATE, candles[-1].time if candles else None)
     return {
         "sent": True,
         "telegramOk": bool(result.get("ok")),
@@ -478,6 +493,18 @@ def check_and_send_latest_alert() -> dict[str, object]:
         "history": history_item,
         "execution": execution,
     }
+
+
+def create_execution_for_signal(signal: object, telegram_reason: str, candle_time: str | None) -> dict[str, object]:
+    if str(telegram_reason).lower().startswith("sinal ja enviado"):
+        return {"created": False, "reason": "sinal ja processado anteriormente"}
+    return create_pending_order(signal, EXECUTION_STATE, candle_time)
+
+
+def format_execution_note(execution: dict[str, object]) -> str:
+    if execution.get("created"):
+        return "MT5: ordem pendente criada para o robo."
+    return f"MT5: nao enviado - {execution.get('reason') or 'filtro operacional'}."
 
 
 def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, object]:
