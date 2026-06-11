@@ -303,6 +303,7 @@ async function loadDashboard() {
       getJson("/signals/history"),
     ]);
     renderSignal(signal);
+    renderStrategyStyle(signal);
     renderBacktest(backtest);
     renderDatasets(datasets);
     renderMlStatus(model);

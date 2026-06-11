@@ -465,3 +465,39 @@ input[type="file"] {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Strategy badges */
+.strategy-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.85em;
+  font-weight: 600;
+  margin-left: 8px;
+}
+.strategy-trend_hunter {
+  background: #1a3a5c;
+  color: #4fc3f7;
+  border: 1px solid #4fc3f7;
+}
+.strategy-scalper {
+  background: #1a3a1a;
+  color: #66bb6a;
+  border: 1px solid #66bb6a;
+}
+.strategy-reversal_pro {
+  background: #3a1a1a;
+  color: #ef5350;
+  border: 1px solid #ef5350;
+}
+.strategy-breakout {
+  background: #3a2a1a;
+  color: #ffa726;
+  border: 1px solid #ffa726;
+}
+.strategy-none {
+  background: #333;
+  color: #999;
+  border: 1px solid #555;
+}
