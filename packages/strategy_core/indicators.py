@@ -28,6 +28,29 @@ def atr(candles: list[Candle], period: int = 14) -> float | None:
     return sum(true_ranges[-period:]) / period
 
 
+
+
+def bollinger_bands(values: list[float], period: int = 20, std_mult: float = 2.0) -> tuple[float | None, float | None]:
+    """Retorna (upper_band, lower_band) para as Bandas de Bollinger."""
+    if len(values) < period:
+        return None, None
+    avg = sum(values[-period:]) / period
+    variance = sum((v - avg)**2 for v in values[-period:]) / period
+    std = variance**0.5
+    upper = avg + std * std_mult
+    lower = avg - std * std_mult
+    return upper, lower
+
+
+def support_resistance(candles: list[Candle], period: int = 12) -> tuple[float | None, float | None]:
+    """Retorna (support, resistance) baseado em minimos e maximos recentes."""
+    if len(candles) < period:
+        return None, None
+    window = candles[-period:]
+    resistance = max(c.high for c in window)
+    support = min(c.low for c in window)
+    return support, resistance
+
 def rsi(values: list[float], period: int = 14) -> float | None:
     if len(values) < period + 1:
         return None
