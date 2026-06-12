@@ -117,6 +117,26 @@ def apply_ml_score(signal: Signal, candles: list[Candle], symbol: str, timeframe
     )
 
 
+def min_signal_risk_reward() -> float:
+    raw = os.getenv("SIGNAL_MIN_RISK_REWARD", "1.35")
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return 1.35
+
+
+def risk_reward_ratio(entry: float, stop: float, target: float, side: str) -> float:
+    if side == "BUY":
+        risk = entry - stop
+        reward = target - entry
+    else:
+        risk = stop - entry
+        reward = entry - target
+    if risk <= 0 or reward <= 0:
+        return 0.0
+    return reward / risk
+
+
 def detect_rule_signal(
     candles: list[Candle],
     symbol: str = "EURUSD",
@@ -143,9 +163,12 @@ def detect_rule_signal(
     chase_penalty = min(max(distance_from_fast - 1.2, 0.0) * 0.08, 0.12)
     recent_low = min(candle.low for candle in candles[-8:])
     recent_high = max(candle.high for candle in candles[-8:])
+    chop_penalty = chop_market_penalty(closes, volatility)
 
-    if trend_strength < 0.08:
+    if trend_strength < 0.10:
         return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["tendencia fraca ou lateral"])
+    if chop_penalty >= 0.10:
+        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["mercado lateral sem direcao clara"])
 
     if fast > slow and last.close >= fast and recent_move >= -volatility * 0.25 and 43 <= momentum <= 76:
         momentum_score = max(0.0, 1 - abs(momentum - 58) / 24)
@@ -155,10 +178,14 @@ def detect_rule_signal(
             direction_strength,
             momentum_score,
             pullback_score,
-            chase_penalty,
+            chase_penalty + chop_penalty,
         )
         stop = round(min(last.close - volatility * 1.1, recent_low - volatility * 0.15), 5)
         risk = last.close - stop
+        targets = [round(last.close + risk * 1.6, 5), round(last.close + risk * 2.4, 5)]
+        rr = risk_reward_ratio(last.close, stop, targets[0], "BUY")
+        if rr < min_signal_risk_reward():
+            return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], [f"risco/retorno baixo ({round(rr, 2)})"])
         return Signal(
             symbol=symbol,
             timeframe=timeframe,
@@ -166,8 +193,8 @@ def detect_rule_signal(
             confidence=confidence,
             entry=round(last.close, 5),
             stop_loss=stop,
-            take_profit=[round(last.close + risk * 1.6, 5), round(last.close + risk * 2.4, 5)],
-            reason=["tendência curta compradora", "momentum saudável", "stop baseado em ATR"],
+            take_profit=targets,
+            reason=["tendência curta compradora", "momentum saudável", "stop baseado em ATR", f"RR {round(rr, 2)}"],
         )
 
     if fast < slow and last.close <= fast and recent_move <= volatility * 0.25 and 24 <= momentum <= 57:
@@ -178,10 +205,14 @@ def detect_rule_signal(
             direction_strength,
             momentum_score,
             pullback_score,
-            chase_penalty,
+            chase_penalty + chop_penalty,
         )
         stop = round(max(last.close + volatility * 1.1, recent_high + volatility * 0.15), 5)
         risk = stop - last.close
+        targets = [round(last.close - risk * 1.6, 5), round(last.close - risk * 2.4, 5)]
+        rr = risk_reward_ratio(last.close, stop, targets[0], "SELL")
+        if rr < min_signal_risk_reward():
+            return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], [f"risco/retorno baixo ({round(rr, 2)})"])
         return Signal(
             symbol=symbol,
             timeframe=timeframe,
@@ -189,11 +220,25 @@ def detect_rule_signal(
             confidence=confidence,
             entry=round(last.close, 5),
             stop_loss=stop,
-            take_profit=[round(last.close - risk * 1.6, 5), round(last.close - risk * 2.4, 5)],
-            reason=["tendência curta vendedora", "momentum saudável", "stop baseado em ATR"],
+            take_profit=targets,
+            reason=["tendência curta vendedora", "momentum saudável", "stop baseado em ATR", f"RR {round(rr, 2)}"],
         )
 
     return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["sem vantagem estatística clara"])
+
+
+def chop_market_penalty(closes: list[float], volatility: float) -> float:
+    if len(closes) < 12:
+        return 0.0
+    window = closes[-12:]
+    drift = abs(window[-1] - window[0])
+    path = sum(abs(window[index] - window[index - 1]) for index in range(1, len(window)))
+    if path <= 0:
+        return 0.0
+    efficiency = drift / path
+    if efficiency >= 0.35:
+        return 0.0
+    return round(min(0.14, (0.35 - efficiency) * 0.35), 3)
 
 
 def quality_confidence(

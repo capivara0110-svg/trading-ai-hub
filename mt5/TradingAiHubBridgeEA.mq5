@@ -18,15 +18,20 @@ input double InpMaxSpreadPips = 1.2;
 input bool   InpAllowLateEntryIfRR = true;
 input double InpMinLateEntryRR = 0.80;
 input double InpHardMaxDeviationPips = 5.0;
-input bool   InpBreakEvenEnabled = true;
-input double InpBreakEvenTriggerPips = 3.0;
-input double InpBreakEvenOffsetPips = 0.1;
+input bool   InpBreakEvenEnabled = false;    // DESLIGADO - usar Profit Manager do backend
+input double InpBreakEvenTriggerPips = 8.0; // backup case InpBreakEvenEnabled=true
+input double InpBreakEvenOffsetPips = 1.5;  // backup case InpBreakEvenEnabled=true
+input bool   InpProfitManagerEnabled = true;  // GERENCIAMENTO DE LUCRO VIA BACKEND
+input int    InpProfitManagerPollSeconds = 10; // consultar backend a cada N segundos
 input ulong  InpMagicNumber = 240601;
 input bool   InpDemoOnly = true;
 
 CTrade trade;
 datetime lastPollAt = 0;
 string claimedOrderId = "";
+datetime lastProfitCheckAt = 0;
+double profitManagerCurrentSl = 0.0;  // SL definido pelo backend
+double profitManagerCurrentTp = 0.0;
 
 int OnInit()
 {
@@ -57,8 +62,13 @@ void OnDeinit(const int reason)
 
 void OnTimer()
 {
-   ManageBreakEven();
+   // Profit Manager (backend) - substitui o break-even local
+   if(InpProfitManagerEnabled)
+      ManageProfitViaBackend();
+   else
+      ManageBreakEven();
 
+   // Poll de novas ordens pendentes
    if(TimeCurrent() - lastPollAt < InpPollSeconds)
       return;
    lastPollAt = TimeCurrent();
@@ -111,6 +121,10 @@ void PollPendingOrder()
    string symbol = InpTradeSymbol == "" ? _Symbol : InpTradeSymbol;
    if(!SymbolSelect(symbol, true))
    {
+      // Remove do Profit Manager se estava registrado
+      string removeBody = "{\"secret\":\"" + JsonEscape(InpExecutionSecret) + "\",\"order_id\":\"" + orderId + "\"}";
+      string remResponse = "";
+      HttpPost(InpApiBaseUrl + "/profit-manager/remove", removeBody, remResponse);
       SendResult(orderId, "REJECTED", 0, 0.0, "symbol not available");
       return;
    }
@@ -166,6 +180,14 @@ void PollPendingOrder()
       ulong ticket = trade.ResultOrder();
       double fillPrice = trade.ResultPrice();
       Print("Trading AI Hub: ordem aberta. id=", orderId, " ticket=", ticket);
+      // Registra no Profit Manager do backend
+      string registerBody = "{";
+      registerBody += "\"secret\":\"" + JsonEscape(InpExecutionSecret) + "\",";
+      registerBody += "\"order_id\":\"" + orderId + "\",";
+      registerBody += "\"current_price\":" + DoubleToString(fillPrice, _Digits);
+      registerBody += "}";
+      string regResponse = "";
+      HttpPost(InpApiBaseUrl + "/profit-manager/update", registerBody, regResponse);
       SendResult(orderId, "EXECUTED", ticket, fillPrice, "opened in MT5 demo");
       return;
    }
@@ -197,6 +219,105 @@ double RewardRiskRatio(const string side, const double price, const double stopL
    if(risk <= 0 || reward <= 0)
       return 0.0;
    return (reward / pip) / (risk / pip);
+}
+
+void ManageProfitViaBackend()
+{
+   if(!InpProfitManagerEnabled)
+      return;
+
+   datetime now = TimeCurrent();
+   if(now - lastProfitCheckAt < InpProfitManagerPollSeconds)
+      return;
+   lastProfitCheckAt = now;
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber) continue;
+
+      long type = PositionGetInteger(POSITION_TYPE);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentStopLoss = PositionGetDouble(POSITION_SL);
+      double currentTakeProfit = PositionGetDouble(POSITION_TP);
+      double volume = PositionGetDouble(POSITION_VOLUME);
+      double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+      double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+      double currentPrice = (type == POSITION_TYPE_BUY) ? bid : ask;
+
+      string orderId = IntegerToString(ticket);
+
+      // Monta JSON para enviar ao backend
+      string body = "{";
+      body += "\"secret\":\"" + JsonEscape(InpExecutionSecret) + "\",";
+      body += "\"order_id\":\"" + orderId + "\",";
+      body += "\"current_price\":" + DoubleToString(currentPrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+      body += "}";
+
+      string response = "";
+      int status = HttpPost(InpApiBaseUrl + "/profit-manager/update", body, response);
+      if(status != 200)
+      {
+         if(status > 0) // so mostra se conseguiu conectar
+            Print("Profit Manager: HTTP=", status, " response=", response);
+         continue;
+      }
+
+      // Verifica se tem ajuste
+      if(StringFind(response, "\"adjusted\": true") < 0 && StringFind(response, "\"adjusted\":true") < 0)
+         continue;
+
+      // Extrai novo SL se houver
+      double newSL = JsonNumber(response, "new_sl", 0.0);
+      if(newSL > 0.0)
+      {
+         double pip = PipSize(symbol);
+         int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+         newSL = NormalizeDouble(newSL, digits);
+
+         // Verifica se o novo SL e melhor que o atual
+         bool shouldUpdate = false;
+         if(type == POSITION_TYPE_BUY && newSL > currentStopLoss && newSL < bid)
+            shouldUpdate = true;
+         if(type == POSITION_TYPE_SELL && (currentStopLoss == 0.0 || newSL < currentStopLoss) && newSL > ask)
+            shouldUpdate = true;
+
+         if(shouldUpdate)
+         {
+            CTrade modTrade;
+            modTrade.SetExpertMagicNumber(InpMagicNumber);
+            if(modTrade.PositionModify(ticket, newSL, currentTakeProfit))
+            {
+               string reason = JsonString(response, "reason");
+               Print("Profit Manager: SL ajustado ticket=", ticket,
+                     " novoSL=", DoubleToString(newSL, digits),
+                     " razao=", reason);
+            }
+         }
+      }
+
+      // Verifica fechamento parcial
+      double closePct = JsonNumber(response, "partial_close_pct", 0.0);
+      if(closePct > 0.0)
+      {
+         double closeVol = JsonNumber(response, "partial_close_volume", 0.0);
+         if(closeVol > 0.0 && closeVol <= volume)
+         {
+            CTrade partTrade;
+            partTrade.SetExpertMagicNumber(InpMagicNumber);
+            if(type == POSITION_TYPE_BUY)
+               partTrade.Sell(closeVol, symbol, 0.0, 0.0, 0.0, "TP Parcial");
+            else
+               partTrade.Buy(closeVol, symbol, 0.0, 0.0, 0.0, "TP Parcial");
+
+            Print("Profit Manager: fechamento parcial ticket=", ticket,
+                  " volume=", DoubleToString(closeVol, 2));
+         }
+      }
+   }
 }
 
 void ManageBreakEven()

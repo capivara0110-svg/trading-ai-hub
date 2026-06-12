@@ -49,6 +49,7 @@ from packages.strategy_core.telegram_alerts import telegram_config_status
 from packages.strategy_core.twelve_data import fetch_time_series
 from packages.strategy_core.twelve_data import twelve_data_status
 from packages.strategy_core.validation import run_out_of_sample_validation
+from packages.strategy_core.profit_manager import get_profit_manager
 
 
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
@@ -160,6 +161,11 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "execucao nao autorizada"}, status=401)
                 return
             self.send_json(pending_order(EXECUTION_STATE))
+            return
+
+        if parsed.path == "/profit-manager/status":
+            pm = get_profit_manager()
+            self.send_json(pm.to_dict())
             return
 
         if self.send_static(parsed.path):
@@ -303,7 +309,44 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 self.send_json(result)
                 return
 
+                        if parsed.path == "/profit-manager/update":
+                payload = self.read_json(max_size=10_000)
+                if not authorize_execution(self.headers, payload):
+                    self.send_json({"error": "execucao nao autorizada"}, status=401)
+                    return
+                pm = get_profit_manager()
+                result = pm.update_trade_price(
+                    str(payload.get("order_id") or ""),
+                    float(payload.get("current_price") or 0),
+                )
+                self.send_json({"adjusted": result is not None, "adjustment": result})
+                return
+
+            if parsed.path == "/profit-manager/remove":
+                payload = self.read_json(max_size=4_000)
+                if not authorize_execution(self.headers, payload):
+                    self.send_json({"error": "execucao nao autorizada"}, status=401)
+                    return
+                pm = get_profit_manager()
+                pm.remove_trade(str(payload.get("order_id") or ""))
+                self.send_json({"removed": True})
+                return
+
+            if parsed.path == "/profit-manager/config":
+                payload = self.read_json(max_size=10_000)
+                if not authorize_execution(self.headers, payload):
+                    self.send_json({"error": "execucao nao autorizada"}, status=401)
+                    return
+                pm = get_profit_manager()
+                if "enabled" in payload:
+                    pm.config.enabled = bool(payload["enabled"])
+                if "max_daily_loss_pips" in payload:
+                    pm.config.max_daily_loss_pips = float(payload["max_daily_loss_pips"])
+                self.send_json({"updated": True, "config": pm.to_dict()})
+                return
+
             if parsed.path == "/jobs/twelve-data-scan":
+
                 payload = self.read_json_optional(max_size=4_000)
                 if not self.authorized_job(payload):
                     self.send_json({"error": "job nao autorizado"}, status=401)
@@ -464,7 +507,7 @@ def check_and_send_latest_alert() -> dict[str, object]:
     signal = apply_stored_mtf_confirmation(signal)
     signal = apply_session_adjustment(signal)
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
-    execution = create_execution_for_signal(signal, reason, candles[-1].time if candles else None)
+    execution = create_execution_for_signal(signal, candles[-1].time if candles else None)
     history_item = None
     if not should_send:
         if execution.get("created"):
@@ -495,9 +538,7 @@ def check_and_send_latest_alert() -> dict[str, object]:
     }
 
 
-def create_execution_for_signal(signal: object, telegram_reason: str, candle_time: str | None) -> dict[str, object]:
-    if str(telegram_reason).lower().startswith("sinal ja enviado"):
-        return {"created": False, "reason": "sinal ja processado anteriormente"}
+def create_execution_for_signal(signal: object, candle_time: str | None) -> dict[str, object]:
     return create_pending_order(signal, EXECUTION_STATE, candle_time)
 
 
