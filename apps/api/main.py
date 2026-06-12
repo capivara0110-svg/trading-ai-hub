@@ -309,7 +309,7 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 self.send_json(result)
                 return
 
-                        if parsed.path == "/profit-manager/update":
+            if parsed.path == "/profit-manager/update":
                 payload = self.read_json(max_size=10_000)
                 if not authorize_execution(self.headers, payload):
                     self.send_json({"error": "execucao nao autorizada"}, status=401)
