@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from packages.strategy_core.backtest import BacktestResult, Trade, calculate_drawdown, price_to_pips
 from packages.strategy_core.data import Candle
 from packages.strategy_core.ml_model import MlModel, extract_features, train_signal_quality_model
-from packages.strategy_core.signals import detect_rule_signal
+from packages.strategy_core.signals import detect_best_strategy
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ def run_out_of_sample_validation(
 
     for index in range(25, len(test) - lookahead):
         window = test[: index + 1]
-        signal = detect_rule_signal(window)
+        signal = detect_best_strategy(window)
         if signal.side == "NO_TRADE" or signal.confidence < min_confidence:
             continue
 
