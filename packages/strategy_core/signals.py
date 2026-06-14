@@ -527,6 +527,26 @@ def detect_breakout_signal(
     return Signal(symbol, timeframe, 'NO_TRADE', 0.0, None, None, [], ['sem breakout viavel'])
 
 
+def risk_reward_ratio(entry: float, stop: float, target: float, side: str) -> float:
+    if side == "BUY":
+        risk = entry - stop
+        reward = target - entry
+    else:
+        risk = stop - entry
+        reward = entry - target
+    if risk <= 0 or reward <= 0:
+        return 0.0
+    return reward / risk
+
+
+def min_signal_risk_reward() -> float:
+    raw = os.getenv("SIGNAL_MIN_RISK_REWARD", "1.35")
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return 1.35
+
+
 def quality_confidence(
     trend_strength: float,
     body_strength: float,
