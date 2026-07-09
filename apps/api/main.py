@@ -40,10 +40,12 @@ from packages.strategy_core.openai_ai import should_add_ai_to_telegram
 from packages.strategy_core.signal_history import evaluate_history
 from packages.strategy_core.signal_history import history_summary
 from packages.strategy_core.signal_history import load_history
+from packages.strategy_core.signal_history import mark_signal_close_notification_sent
 from packages.strategy_core.signal_history import record_signal
 from packages.strategy_core.signals import detect_forex_signal
 from packages.strategy_core.telegram_alerts import format_signal_message
 from packages.strategy_core.telegram_alerts import format_order_result_message
+from packages.strategy_core.telegram_alerts import format_signal_result_message
 from packages.strategy_core.telegram_alerts import mark_signal_sent
 from packages.strategy_core.telegram_alerts import send_telegram_message
 from packages.strategy_core.telegram_alerts import should_send_signal
@@ -57,7 +59,7 @@ from packages.strategy_core.profit_manager import get_profit_manager
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.27.0"
+APP_VERSION = "0.28.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -576,6 +578,7 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
     dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
     confirmation_datasets = refresh_confirmation_timeframes(symbol, timeframe)
     performance = evaluate_history(SIGNAL_HISTORY, candles)
+    paper_notifications = notify_closed_paper_signals(performance)
     alert = check_and_send_latest_alert()
     market = forex_market_status(candles)
     dataset_payload = dataset.to_dict(DATASETS.active_id())
@@ -588,8 +591,51 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
         "alert": alert,
         "statusUpdate": status_update,
         "performance": performance,
+        "paperNotifications": paper_notifications,
         "confirmations": confirmation_datasets,
     }
+
+
+def notify_closed_paper_signals(performance: dict[str, object]) -> dict[str, object]:
+    if os.getenv("TELEGRAM_SEND_PAPER_RESULTS", "true").lower() != "true":
+        return {"sent": 0, "reason": "resultado paper desativado"}
+
+    candidates: list[dict[str, object]] = []
+    closed_now = performance.get("closedNow")
+    if isinstance(closed_now, list):
+        candidates.extend([item for item in closed_now if isinstance(item, dict)])
+    recent_signals = performance.get("signals")
+    if isinstance(recent_signals, list):
+        candidates.extend(
+            [
+                item
+                for item in recent_signals
+                if isinstance(item, dict)
+                and item.get("status") in {"WIN", "LOSS"}
+                and not item.get("closeNotificationSent")
+            ]
+        )
+    if not candidates:
+        return {"sent": 0, "reason": "sem fechamentos"}
+
+    sent = 0
+    errors: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        if item.get("closeNotificationSent"):
+            continue
+        key = str(item.get("key") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        try:
+            result = send_telegram_message(format_signal_result_message(item))
+            if result.get("ok"):
+                sent += 1
+                mark_signal_close_notification_sent(SIGNAL_HISTORY, key)
+        except Exception as error:
+            errors.append(str(error))
+    return {"sent": sent, "errors": errors}
 
 
 def refresh_confirmation_timeframes(symbol: str, primary_timeframe: str) -> list[dict[str, object]]:

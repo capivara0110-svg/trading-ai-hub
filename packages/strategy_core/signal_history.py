@@ -30,6 +30,7 @@ def record_signal(signal: Signal, history_path: Path, candle_time: str | None = 
         "resultPips": None,
         "closedAt": None,
         "exitPrice": None,
+        "closeNotificationSent": False,
         "reason": signal.reason,
     }
     history.append(item)
@@ -40,16 +41,33 @@ def record_signal(signal: Signal, history_path: Path, candle_time: str | None = 
 def evaluate_history(history_path: Path, candles: list[Candle]) -> dict[str, object]:
     history = load_history(history_path)
     changed = False
+    closed_now: list[dict[str, object]] = []
     for item in history:
         if item.get("status") != "OPEN":
             continue
         result = evaluate_item(item, candles)
         if result:
             item.update(result)
+            item["closeNotificationSent"] = False
+            closed_now.append(dict(item))
             changed = True
     if changed:
         save_history(history_path, history)
-    return history_summary(history)
+    summary = history_summary(history)
+    summary["closedNow"] = closed_now
+    return summary
+
+
+def mark_signal_close_notification_sent(history_path: Path, key: str) -> None:
+    history = load_history(history_path)
+    changed = False
+    for item in history:
+        if item.get("key") == key:
+            item["closeNotificationSent"] = True
+            changed = True
+            break
+    if changed:
+        save_history(history_path, history)
 
 
 def history_summary(history: list[dict[str, object]]) -> dict[str, object]:
@@ -63,6 +81,7 @@ def history_summary(history: list[dict[str, object]]) -> dict[str, object]:
         "closedSignals": len(closed),
         "winRate": round(len(wins) / len(closed), 2) if closed else 0,
         "totalPips": round(total_pips, 1),
+        "closedNow": [],
     }
 
 

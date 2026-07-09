@@ -76,6 +76,30 @@ def format_order_result_message(order: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+def format_signal_result_message(item: dict[str, object]) -> str:
+    status = str(item.get("status") or "").upper()
+    result = "WIN" if status == "WIN" else "LOSS"
+    targets = item.get("takeProfit") if isinstance(item.get("takeProfit"), list) else []
+    first_target = targets[0] if targets else "--"
+    lines = [
+        "Trading AI Hub",
+        "",
+        f"SINAL FECHADO: {result}",
+        f"{item.get('symbol') or '--'} {item.get('timeframe') or '--'} {item.get('side') or '--'}",
+        "",
+        f"Entrada: {item.get('entry') if item.get('entry') is not None else '--'}",
+        f"Stop: {item.get('stopLoss') if item.get('stopLoss') is not None else '--'}",
+        f"Alvo 1: {first_target}",
+        f"Saida simulada: {item.get('exitPrice') if item.get('exitPrice') is not None else '--'}",
+        f"Resultado: {item.get('resultPips') if item.get('resultPips') is not None else '--'} pips",
+        f"Fechou em: {item.get('closedAt') or '--'}",
+        "",
+        "Modo: acompanhamento pelo servidor, sem execucao no MT5.",
+        "Aviso: resultado simulado por candle, nao e garantia de execucao real.",
+    ]
+    return "\n".join(lines)
+
+
 def send_telegram_message(text: str) -> dict[str, object]:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
