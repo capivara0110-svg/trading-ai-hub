@@ -133,7 +133,26 @@ def apply_ml_score(signal: Signal, candles: list[Candle], symbol: str, timeframe
         )
 
     side_score = ml_score if signal.side == 'BUY' else 1 - ml_score
-    confidence = round((signal.confidence * 0.85) + (side_score * 0.15), 2) if model.trained else signal.confidence
+    if model.trained and side_score < min_signal_ml_score():
+        return Signal(
+            symbol=signal.symbol,
+            timeframe=signal.timeframe,
+            side='NO_TRADE',
+            confidence=0.0,
+            entry=None,
+            stop_loss=None,
+            take_profit=[],
+            reason=signal_reasons(
+                signal.reason + ['score ML abaixo do minimo operacional'],
+                model.trained,
+                side_score,
+            ),
+            ml_score=side_score,
+            ml_trained=model.trained,
+            strategy_style=None,
+        )
+
+    confidence = calibrated_confidence(signal.confidence, side_score, model.trained)
     return Signal(
         symbol=signal.symbol,
         timeframe=signal.timeframe,
@@ -261,6 +280,8 @@ def detect_trend_hunter(
         confidence = min(confidence + 0.05, 0.90)
         stop = round(min(last.close - volatility * 1.3, recent_low - volatility * 0.15), 5)
         risk = last.close - stop
+        if risk / max(volatility, 0.00001) > max_stop_atr_multiple():
+            return Signal(symbol, timeframe, 'NO_TRADE', 0.0, None, None, [], ['stop ATR acima do limite operacional'])
         return Signal(
             symbol=symbol,
             timeframe=timeframe,
@@ -281,6 +302,8 @@ def detect_trend_hunter(
         confidence = min(confidence + 0.05, 0.90)
         stop = round(max(last.close + volatility * 1.3, recent_high + volatility * 0.15), 5)
         risk = stop - last.close
+        if risk / max(volatility, 0.00001) > max_stop_atr_multiple():
+            return Signal(symbol, timeframe, 'NO_TRADE', 0.0, None, None, [], ['stop ATR acima do limite operacional'])
         return Signal(
             symbol=symbol,
             timeframe=timeframe,
@@ -547,6 +570,36 @@ def min_signal_risk_reward() -> float:
         return 1.35
 
 
+def min_signal_ml_score() -> float:
+    raw = os.getenv("SIGNAL_MIN_ML_SCORE", "0.55")
+    try:
+        return min(max(float(raw), 0.0), 0.95)
+    except ValueError:
+        return 0.55
+
+
+def max_stop_atr_multiple() -> float:
+    raw = os.getenv("SIGNAL_MAX_STOP_ATR_MULTIPLE", "2.6")
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return 2.6
+
+
+def calibrated_confidence(rule_confidence: float, ml_score: float, trained: bool) -> float:
+    if not trained:
+        return min(rule_confidence, 0.72)
+
+    blended = (rule_confidence * 0.55) + (ml_score * 0.45)
+    if ml_score < 0.60:
+        blended = min(blended, 0.78)
+    elif ml_score < 0.65:
+        blended = min(blended, 0.84)
+    else:
+        blended = min(blended, 0.92)
+    return round(max(blended, 0.0), 2)
+
+
 def quality_confidence(
     trend_strength: float,
     body_strength: float,
@@ -571,5 +624,4 @@ def signal_reasons(reasons: list[str], trained: bool, score: float) -> list[str]
     if not trained:
         return reasons + ['IA aguardando mais dados para treino']
     return reasons + ['score ML ' + str(round(score * 100)) + '%']
-
 

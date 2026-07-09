@@ -67,10 +67,16 @@ def send_telegram_message(text: str) -> dict[str, object]:
 
 def should_send_signal(signal: Signal, state_path: Path) -> tuple[bool, str]:
     min_confidence = float(os.getenv("TELEGRAM_MIN_CONFIDENCE", "0.60"))
+    min_ml_score = float(os.getenv("TELEGRAM_MIN_ML_SCORE", os.getenv("SIGNAL_MIN_ML_SCORE", "0.55")))
     if signal.side == "NO_TRADE":
         return False, "Sem sinal operacional."
     if signal.confidence < min_confidence:
         return False, f"Confianca abaixo do minimo ({round(min_confidence * 100)}%)."
+    if signal.ml_score is not None and signal.ml_score < min_ml_score:
+        return False, f"Score IA abaixo do minimo ({round(min_ml_score * 100)}%)."
+    passed_context, context_reason = telegram_context_gate(signal)
+    if not passed_context:
+        return False, context_reason
 
     key = signal_key(signal)
     state = read_signal_state(state_path)
@@ -82,6 +88,28 @@ def should_send_signal(signal: Signal, state_path: Path) -> tuple[bool, str]:
     if not cooldown_ok:
         return False, cooldown_reason
     return True, key
+
+
+def telegram_context_gate(signal: Signal) -> tuple[bool, str]:
+    reasons = [str(reason).upper() for reason in signal.reason]
+    if env_bool("TELEGRAM_BLOCK_MTF_CONFLICT", True):
+        conflict = f"CONTRA {signal.side}".upper()
+        if any(conflict in reason for reason in reasons):
+            return False, "Confirmacao MTF contra o sinal."
+
+    if env_bool("TELEGRAM_REQUIRE_MTF_CONFIRMATION", True):
+        confirmation = f"CONFIRMA {signal.side}".upper()
+        if not any(confirmation in reason for reason in reasons):
+            return False, "Sem confirmacao M15/H1 a favor."
+
+    return True, "contexto aprovado"
+
+
+def env_bool(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if raw == "":
+        return default
+    return raw in {"1", "true", "yes", "sim", "on"}
 
 
 def mark_signal_sent(signal: Signal, state_path: Path) -> None:
