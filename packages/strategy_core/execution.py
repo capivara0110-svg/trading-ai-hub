@@ -103,7 +103,10 @@ def pending_order_eligibility(signal: Signal, state_path: Path) -> tuple[bool, s
 
 
 def execution_quality_gate(signal: Signal) -> tuple[bool, str]:
-    min_ml_score = env_float("AUTO_TRADE_MIN_ML_SCORE", 0.50)
+    min_ml_score = max(
+        env_float("AUTO_TRADE_MIN_ML_SCORE", 0.55),
+        env_float("SIGNAL_MIN_ML_SCORE", 0.55),
+    )
     if signal.ml_score is not None and signal.ml_score < min_ml_score:
         return False, f"score IA abaixo do minimo ({round(min_ml_score * 100)}%)"
 
@@ -123,7 +126,8 @@ def execution_quality_gate(signal: Signal) -> tuple[bool, str]:
         if any(conflict in reason for reason in reasons):
             return False, "confirmacao MTF contra o sinal"
 
-    if env_bool("AUTO_TRADE_REQUIRE_MTF_CONFIRMATION", False):
+    require_mtf_confirmation = not env_bool("AUTO_TRADE_ALLOW_NO_MTF_CONFIRMATION", False)
+    if require_mtf_confirmation or env_bool("AUTO_TRADE_REQUIRE_MTF_CONFIRMATION", True):
         confirmation = f"CONFIRMA {signal.side}".upper()
         if not any(confirmation in reason for reason in reasons):
             return False, "sem confirmacao M15/H1 a favor"
