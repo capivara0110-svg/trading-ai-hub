@@ -29,6 +29,7 @@ from packages.strategy_core.execution import authorize_execution
 from packages.strategy_core.execution import claim_order
 from packages.strategy_core.execution import create_pending_order
 from packages.strategy_core.execution import execution_status
+from packages.strategy_core.execution import mark_order_close_notification_sent
 from packages.strategy_core.execution import mark_order_result
 from packages.strategy_core.execution import pending_order_eligibility
 from packages.strategy_core.execution import pending_order
@@ -42,6 +43,7 @@ from packages.strategy_core.signal_history import load_history
 from packages.strategy_core.signal_history import record_signal
 from packages.strategy_core.signals import detect_forex_signal
 from packages.strategy_core.telegram_alerts import format_signal_message
+from packages.strategy_core.telegram_alerts import format_order_result_message
 from packages.strategy_core.telegram_alerts import mark_signal_sent
 from packages.strategy_core.telegram_alerts import send_telegram_message
 from packages.strategy_core.telegram_alerts import should_send_signal
@@ -55,7 +57,7 @@ from packages.strategy_core.profit_manager import get_profit_manager
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.26.2"
+APP_VERSION = "0.27.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -296,7 +298,17 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 if not authorize_execution(self.headers, payload):
                     self.send_json({"error": "execucao nao autorizada"}, status=401)
                     return
-                self.send_json(mark_order_result(EXECUTION_STATE, str(payload.get("id") or ""), payload))
+                order_id = str(payload.get("id") or "")
+                result = mark_order_result(EXECUTION_STATE, order_id, payload)
+                if result.get("shouldNotify") and isinstance(result.get("order"), dict):
+                    try:
+                        telegram = send_telegram_message(format_order_result_message(result["order"]))
+                        result["telegramOk"] = bool(telegram.get("ok"))
+                        mark_order_close_notification_sent(EXECUTION_STATE, order_id)
+                    except Exception as error:
+                        result["telegramOk"] = False
+                        result["telegramError"] = str(error)
+                self.send_json(result)
                 return
 
             if parsed.path == "/jobs/check-alerts":

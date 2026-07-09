@@ -3,7 +3,7 @@
 //| Demo-first bridge for Trading AI Hub execution/pending endpoint. |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.00"
+#property version   "1.01"
 
 #include <Trade/Trade.mqh>
 
@@ -32,6 +32,9 @@ string claimedOrderId = "";
 datetime lastProfitCheckAt = 0;
 double profitManagerCurrentSl = 0.0;  // SL definido pelo backend
 double profitManagerCurrentTp = 0.0;
+string activeTrackedOrderId = "";
+ulong activeTrackedPositionTicket = 0;
+string activeTrackedSymbol = "";
 
 int OnInit()
 {
@@ -51,6 +54,7 @@ int OnInit()
    }
 
    EventSetTimer((int)MathMax(1, InpPollSeconds));
+   LoadTrackedOrder();
    Print("Trading AI Hub Bridge EA iniciado.");
    return INIT_SUCCEEDED;
 }
@@ -58,6 +62,43 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+}
+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+{
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD || trans.deal == 0)
+      return;
+
+   if(!HistoryDealSelect(trans.deal))
+      return;
+
+   long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+   if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_INOUT)
+      return;
+
+   long magic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
+   if(magic != (long)InpMagicNumber)
+      return;
+
+   ulong positionId = (ulong)HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID);
+   if(activeTrackedPositionTicket > 0 && positionId != activeTrackedPositionTicket)
+      return;
+
+   if(activeTrackedOrderId == "")
+      return;
+
+   if(HasPositionTicket(positionId))
+      return;
+
+   double closePrice = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+   double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
+                 + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
+                 + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+   string status = profit >= 0.0 ? "WIN" : "LOSS";
+   SendCloseResult(activeTrackedOrderId, status, positionId, closePrice, profit, "position closed in MT5");
+   ClearTrackedOrder();
 }
 
 void OnTimer()
@@ -179,7 +220,11 @@ void PollPendingOrder()
    {
       ulong ticket = trade.ResultOrder();
       double fillPrice = trade.ResultPrice();
+      ulong positionTicket = FindOpenPositionTicket(symbol);
+      if(positionTicket == 0)
+         positionTicket = ticket;
       Print("Trading AI Hub: ordem aberta. id=", orderId, " ticket=", ticket);
+      SaveTrackedOrder(orderId, positionTicket, symbol);
       // Registra no Profit Manager do backend
       string registerBody = "{";
       registerBody += "\"secret\":\"" + JsonEscape(InpExecutionSecret) + "\",";
@@ -188,7 +233,7 @@ void PollPendingOrder()
       registerBody += "}";
       string regResponse = "";
       HttpPost(InpApiBaseUrl + "/profit-manager/update", registerBody, regResponse);
-      SendResult(orderId, "EXECUTED", ticket, fillPrice, "opened in MT5 demo");
+      SendResult(orderId, "EXECUTED", positionTicket, fillPrice, "opened in MT5 demo");
       return;
    }
 
@@ -248,7 +293,9 @@ void ManageProfitViaBackend()
       double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
       double currentPrice = (type == POSITION_TYPE_BUY) ? bid : ask;
 
-      string orderId = IntegerToString(ticket);
+      string orderId = activeTrackedOrderId;
+      if(orderId == "" || ticket != activeTrackedPositionTicket)
+         orderId = IntegerToString(ticket);
 
       // Monta JSON para enviar ao backend
       string body = "{";
@@ -404,6 +451,23 @@ void SendResult(const string orderId, const string status, const ulong ticket, c
    Print("Trading AI Hub: result HTTP=", httpStatus, " body=", response);
 }
 
+void SendCloseResult(const string orderId, const string status, const ulong ticket, const double closePrice, const double profit, const string message)
+{
+   string body = "{";
+   body += "\"secret\":\"" + JsonEscape(InpExecutionSecret) + "\",";
+   body += "\"id\":\"" + JsonEscape(orderId) + "\",";
+   body += "\"status\":\"" + JsonEscape(status) + "\",";
+   body += "\"brokerTicket\":\"" + IntegerToString((long)ticket) + "\",";
+   body += "\"closePrice\":" + DoubleToString(closePrice, _Digits) + ",";
+   body += "\"profit\":" + DoubleToString(profit, 2) + ",";
+   body += "\"message\":\"" + JsonEscape(message) + "\"";
+   body += "}";
+
+   string response = "";
+   int httpStatus = HttpPost(InpApiBaseUrl + "/execution/result", body, response);
+   Print("Trading AI Hub: close result HTTP=", httpStatus, " body=", response);
+}
+
 int HttpGet(const string url, string &response)
 {
    char data[];
@@ -444,6 +508,74 @@ bool HasOpenPosition(const string symbol)
          return true;
    }
    return false;
+}
+
+bool HasPositionTicket(const ulong positionTicket)
+{
+   if(positionTicket == 0)
+      return false;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == positionTicket)
+         return true;
+   }
+   return false;
+}
+
+ulong FindOpenPositionTicket(const string symbol)
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+      if(PositionGetString(POSITION_SYMBOL) == symbol && PositionGetInteger(POSITION_MAGIC) == (long)InpMagicNumber)
+         return ticket;
+   }
+   return 0;
+}
+
+string TrackingFileName()
+{
+   return "trading_ai_hub_tracking_" + IntegerToString((int)InpMagicNumber) + ".txt";
+}
+
+void SaveTrackedOrder(const string orderId, const ulong positionTicket, const string symbol)
+{
+   activeTrackedOrderId = orderId;
+   activeTrackedPositionTicket = positionTicket;
+   activeTrackedSymbol = symbol;
+
+   int handle = FileOpen(TrackingFileName(), FILE_WRITE | FILE_TXT | FILE_COMMON);
+   if(handle == INVALID_HANDLE)
+      return;
+   FileWrite(handle, orderId);
+   FileWrite(handle, IntegerToString((long)positionTicket));
+   FileWrite(handle, symbol);
+   FileClose(handle);
+}
+
+void LoadTrackedOrder()
+{
+   int handle = FileOpen(TrackingFileName(), FILE_READ | FILE_TXT | FILE_COMMON);
+   if(handle == INVALID_HANDLE)
+      return;
+   activeTrackedOrderId = FileReadString(handle);
+   activeTrackedPositionTicket = (ulong)StringToInteger(FileReadString(handle));
+   activeTrackedSymbol = FileReadString(handle);
+   FileClose(handle);
+
+   if(activeTrackedPositionTicket > 0 && !HasPositionTicket(activeTrackedPositionTicket))
+      ClearTrackedOrder();
+}
+
+void ClearTrackedOrder()
+{
+   activeTrackedOrderId = "";
+   activeTrackedPositionTicket = 0;
+   activeTrackedSymbol = "";
+   FileDelete(TrackingFileName(), FILE_COMMON);
 }
 
 double PipSize(const string symbol)

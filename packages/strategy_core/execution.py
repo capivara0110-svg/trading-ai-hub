@@ -63,6 +63,7 @@ def create_pending_order(signal: Signal, state_path: Path, candle_time: str | No
         "reason": signal.reason,
     }
     state["order"] = order
+    upsert_order(state, order)
     increment_daily_count(state, now)
     write_execution_state(state_path, state)
     return {"created": True, "order": order}
@@ -177,12 +178,13 @@ def claim_order(state_path: Path, order_id: str) -> dict[str, object]:
 
 def mark_order_result(state_path: Path, order_id: str, payload: dict[str, object]) -> dict[str, object]:
     state = read_execution_state(state_path)
-    order = state.get("order") if isinstance(state.get("order"), dict) else None
-    if not order or str(order.get("id")) != order_id:
+    order = find_order(state, order_id)
+    if not order:
         return {"updated": False, "reason": "ordem nao encontrada"}
     status = str(payload.get("status") or "EXECUTED").upper()
-    if status not in {"EXECUTED", "REJECTED", "CANCELLED", "ERROR"}:
+    if status not in {"EXECUTED", "REJECTED", "CANCELLED", "ERROR", "WIN", "LOSS"}:
         status = "EXECUTED"
+    previous_notified = bool(order.get("closeNotificationSent"))
     order["status"] = status
 
     # Registra no Profit Manager para gerenciamento de lucro
@@ -201,13 +203,69 @@ def mark_order_result(state_path: Path, order_id: str, payload: dict[str, object
                 volume=float(order.get("lot", 0.01)),
                 broker_ticket=str(payload.get("brokerTicket", "")),
             )
+    if status in {"WIN", "LOSS"}:
+        order["closedAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        order["closePrice"] = payload.get("closePrice", payload.get("fillPrice"))
+        order["profit"] = payload.get("profit")
+        order["resultPips"] = result_pips(order)
     order["updatedAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    order["brokerTicket"] = payload.get("brokerTicket")
+    order["brokerTicket"] = payload.get("brokerTicket") or order.get("brokerTicket")
     order["brokerMessage"] = payload.get("message")
-    order["fillPrice"] = payload.get("fillPrice")
-    state["order"] = order
+    if payload.get("fillPrice") is not None:
+        order["fillPrice"] = payload.get("fillPrice")
+    if state.get("order") and isinstance(state.get("order"), dict) and str(state["order"].get("id")) == order_id:
+        state["order"] = order
+    upsert_order(state, order)
     write_execution_state(state_path, state)
-    return {"updated": True, "order": order}
+    should_notify = status in {"WIN", "LOSS"} and not previous_notified
+    return {"updated": True, "order": order, "closed": status in {"WIN", "LOSS"}, "shouldNotify": should_notify}
+
+
+def mark_order_close_notification_sent(state_path: Path, order_id: str) -> None:
+    state = read_execution_state(state_path)
+    order = find_order(state, order_id)
+    if not order:
+        return
+    order["closeNotificationSent"] = True
+    if state.get("order") and isinstance(state.get("order"), dict) and str(state["order"].get("id")) == order_id:
+        state["order"] = order
+    upsert_order(state, order)
+    write_execution_state(state_path, state)
+
+
+def find_order(state: dict[str, object], order_id: str) -> dict[str, object] | None:
+    order = state.get("order") if isinstance(state.get("order"), dict) else None
+    if order and str(order.get("id")) == order_id:
+        return order
+    orders = state.get("orders") if isinstance(state.get("orders"), dict) else {}
+    saved = orders.get(order_id) if isinstance(orders, dict) else None
+    return saved if isinstance(saved, dict) else None
+
+
+def upsert_order(state: dict[str, object], order: dict[str, object]) -> None:
+    order_id = str(order.get("id") or "")
+    if not order_id:
+        return
+    orders = state.get("orders") if isinstance(state.get("orders"), dict) else {}
+    orders[order_id] = order
+    if len(orders) > 100:
+        keys = list(orders.keys())[-100:]
+        orders = {key: orders[key] for key in keys}
+    state["orders"] = orders
+
+
+def result_pips(order: dict[str, object]) -> float | None:
+    close_price = order.get("closePrice")
+    entry = order.get("fillPrice") or order.get("entry")
+    side = str(order.get("side") or "").upper()
+    symbol = str(order.get("symbol") or "")
+    if close_price is None or entry is None or side not in {"BUY", "SELL"}:
+        return None
+    raw = float(close_price) - float(entry)
+    if side == "SELL":
+        raw *= -1
+    multiplier = 100 if "JPY" in symbol.upper() else 10000
+    return round(raw * multiplier, 1)
 
 
 def authorize_execution(headers: object, payload: dict[str, object] | None = None) -> bool:

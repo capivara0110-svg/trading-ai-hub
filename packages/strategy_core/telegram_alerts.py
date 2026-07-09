@@ -48,6 +48,34 @@ def format_signal_message(signal: Signal, ai_note: str | None = None, execution_
     return "\n".join(lines)
 
 
+def format_order_result_message(order: dict[str, object]) -> str:
+    status = str(order.get("status") or "").upper()
+    result = "WIN" if status == "WIN" else "LOSS"
+    symbol = str(order.get("symbol") or "--")
+    timeframe = str(order.get("timeframe") or "--")
+    side = str(order.get("side") or "--")
+    pips = order.get("resultPips")
+    profit = order.get("profit")
+    lines = [
+        "Trading AI Hub",
+        "",
+        f"ORDEM FECHADA: {result}",
+        f"{symbol} {timeframe} {side}",
+        "",
+        f"Entrada: {order.get('fillPrice') or order.get('entry') or '--'}",
+        f"Saida: {order.get('closePrice') or '--'}",
+        f"Resultado: {pips if pips is not None else '--'} pips",
+    ]
+    if profit is not None:
+        lines.append(f"Lucro/prejuizo: {profit}")
+    if order.get("brokerTicket"):
+        lines.append(f"Ticket: {order.get('brokerTicket')}")
+    if order.get("brokerMessage"):
+        lines.extend(["", str(order.get("brokerMessage"))])
+    lines.extend(["", "Aviso: resultado operacional registrado pelo robo/MT5."])
+    return "\n".join(lines)
+
+
 def send_telegram_message(text: str) -> dict[str, object]:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
