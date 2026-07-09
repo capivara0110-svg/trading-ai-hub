@@ -59,7 +59,7 @@ from packages.strategy_core.profit_manager import get_profit_manager
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.28.0"
+APP_VERSION = "0.28.1"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -762,8 +762,8 @@ def maybe_send_monitor_status(
     dataset: dict[str, object],
     candles: int,
 ) -> dict[str, object]:
-    if os.getenv("TELEGRAM_SEND_NO_SIGNAL_STATUS", "false").lower() != "true":
-        return {"sent": False, "reason": "status desativado"}
+    if os.getenv("TELEGRAM_SEND_MONITOR_STATUS", "false").lower() != "true":
+        return {"sent": False, "reason": "status/no-trade desativado"}
     if alert.get("sent") is True:
         return {"sent": False, "reason": "sinal operacional ja enviado"}
 
