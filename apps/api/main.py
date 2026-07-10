@@ -59,7 +59,7 @@ from packages.strategy_core.profit_manager import get_profit_manager
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.29.0"
+APP_VERSION = "0.30.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,

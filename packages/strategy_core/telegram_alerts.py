@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 
 from packages.strategy_core.market_hours import get_market_timezone
 from packages.strategy_core.signals import Signal
+from packages.strategy_core.signals import risk_reward_ratio
 
 
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/{method}"
@@ -118,14 +119,17 @@ def send_telegram_message(text: str) -> dict[str, object]:
 
 
 def should_send_signal(signal: Signal, state_path: Path) -> tuple[bool, str]:
-    min_confidence = float(os.getenv("TELEGRAM_MIN_CONFIDENCE", "0.60"))
-    min_ml_score = float(os.getenv("TELEGRAM_MIN_ML_SCORE", os.getenv("SIGNAL_MIN_ML_SCORE", "0.55")))
+    min_confidence = max(env_float("TELEGRAM_MIN_CONFIDENCE", 0.72), 0.72)
+    min_ml_score = max(env_float("TELEGRAM_MIN_ML_SCORE", env_float("SIGNAL_MIN_ML_SCORE", 0.62)), 0.62)
     if signal.side == "NO_TRADE":
         return False, "Sem sinal operacional."
     if signal.confidence < min_confidence:
         return False, f"Confianca abaixo do minimo ({round(min_confidence * 100)}%)."
     if signal.ml_score is not None and signal.ml_score < min_ml_score:
         return False, f"Score IA abaixo do minimo ({round(min_ml_score * 100)}%)."
+    passed_expectancy, expectancy_reason = telegram_expectancy_gate(signal)
+    if not passed_expectancy:
+        return False, expectancy_reason
     passed_context, context_reason = telegram_context_gate(signal)
     if not passed_context:
         return False, context_reason
@@ -139,11 +143,28 @@ def should_send_signal(signal: Signal, state_path: Path) -> tuple[bool, str]:
     cooldown_ok, cooldown_reason = signal_cooldown_ok(state)
     if not cooldown_ok:
         return False, cooldown_reason
+    side_cooldown_ok, side_cooldown_reason = same_side_cooldown_ok(state, signal.side)
+    if not side_cooldown_ok:
+        return False, side_cooldown_reason
     return True, key
+
+
+def telegram_expectancy_gate(signal: Signal) -> tuple[bool, str]:
+    if signal.entry is None or signal.stop_loss is None or not signal.take_profit:
+        return False, "Sinal sem entrada, stop ou alvo."
+    min_rr = max(env_float("TELEGRAM_MIN_RISK_REWARD", 1.60), 1.60)
+    rr = risk_reward_ratio(float(signal.entry), float(signal.stop_loss), float(signal.take_profit[0]), signal.side)
+    if rr < min_rr:
+        return False, f"Risco/retorno abaixo do minimo ({round(rr, 2)})."
+    return True, "expectativa aprovada"
 
 
 def telegram_context_gate(signal: Signal) -> tuple[bool, str]:
     reasons = [str(reason).upper() for reason in signal.reason]
+    if env_bool("TELEGRAM_BLOCK_FRIDAY_CLOSE", True):
+        if any("SEXTA PERTO DO FECHAMENTO" in reason for reason in reasons):
+            return False, "Sexta perto do fechamento."
+
     if env_bool("TELEGRAM_BLOCK_MTF_CONFLICT", True):
         conflict = f"CONTRA {signal.side}".upper()
         if any(conflict in reason for reason in reasons):
@@ -164,6 +185,26 @@ def env_bool(name: str, default: bool) -> bool:
     return raw in {"1", "true", "yes", "sim", "on"}
 
 
+def env_float(name: str, default: float) -> float:
+    raw = str(os.getenv(name, "")).strip().replace(",", ".")
+    if raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def env_int(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def mark_signal_sent(signal: Signal, state_path: Path) -> None:
     state_path.parent.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
@@ -172,6 +213,8 @@ def mark_signal_sent(signal: Signal, state_path: Path) -> None:
     sent_today = int(state.get("sentToday") or 0)
     if state.get("sentDay") != today:
         sent_today = 0
+    last_by_side = state.get("lastSignalBySide") if isinstance(state.get("lastSignalBySide"), dict) else {}
+    last_by_side[signal.side] = now.isoformat(timespec="seconds")
     payload = {
         "lastSignalKey": signal_key(signal),
         "lastSignalAt": now.isoformat(timespec="seconds"),
@@ -179,6 +222,7 @@ def mark_signal_sent(signal: Signal, state_path: Path) -> None:
         "lastSymbol": signal.symbol,
         "sentDay": today,
         "sentToday": sent_today + 1,
+        "lastSignalBySide": last_by_side,
     }
     state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -224,6 +268,30 @@ def signal_cooldown_ok(state: dict[str, object]) -> tuple[bool, str]:
     if remaining > 0:
         return False, f"Aguardando cooldown do Telegram ({remaining} min)."
     return True, "cooldown liberado"
+
+
+def same_side_cooldown_ok(state: dict[str, object], side: str) -> tuple[bool, str]:
+    minutes = env_int("TELEGRAM_SAME_SIDE_COOLDOWN_MINUTES", 120)
+    if minutes <= 0:
+        return True, "cooldown mesmo lado desativado"
+
+    last_by_side = state.get("lastSignalBySide") if isinstance(state.get("lastSignalBySide"), dict) else {}
+    raw = last_by_side.get(side)
+    if not raw and state.get("lastSide") == side:
+        raw = state.get("lastSignalAt")
+    if not raw:
+        return True, "sem envio anterior do mesmo lado"
+    try:
+        last_sent = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return True, "estado anterior invalido"
+    if last_sent.tzinfo is None:
+        last_sent = last_sent.replace(tzinfo=timezone.utc)
+    elapsed = datetime.now(timezone.utc) - last_sent
+    remaining = int((minutes * 60 - elapsed.total_seconds()) // 60) + 1
+    if remaining > 0:
+        return False, f"Aguardando cooldown de {side} ({remaining} min)."
+    return True, "cooldown mesmo lado liberado"
 
 
 def daily_signal_limit_reached(state: dict[str, object]) -> bool:
