@@ -14,6 +14,11 @@ FEATURE_NAMES = [
     "body_strength",
     "last_return",
     "range_expansion",
+    "distance_fast",
+    "distance_slow",
+    "momentum_slope",
+    "upper_wick",
+    "lower_wick",
 ]
 
 
@@ -32,6 +37,7 @@ class MlModel:
     train_accuracy: float
     positive_centroid: list[float]
     negative_centroid: list[float]
+    training_rows: list[TrainingSample]
 
     def score(self, features: list[float]) -> float:
         if not self.trained:
@@ -40,8 +46,12 @@ class MlModel:
         negative_distance = euclidean(features, self.negative_centroid)
         total = positive_distance + negative_distance
         if total == 0:
-            return 0.5
-        return round(max(0.05, min(0.95, negative_distance / total)), 2)
+            centroid_score = 0.5
+        else:
+            centroid_score = negative_distance / total
+        neighbor_score = knn_score(features, self.training_rows)
+        blended = centroid_score * 0.55 + neighbor_score * 0.45
+        return round(max(0.05, min(0.95, blended)), 2)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -60,7 +70,7 @@ def train_signal_quality_model(candles: list[Candle]) -> MlModel:
     negative = [sample.features for sample in samples if sample.label == 0]
 
     if len(positive) < 3 or len(negative) < 3:
-        return MlModel(False, len(samples), len(positive), len(negative), 0.0, [], [])
+        return MlModel(False, len(samples), len(positive), len(negative), 0.0, [], [], [])
 
     model = MlModel(
         trained=True,
@@ -70,16 +80,17 @@ def train_signal_quality_model(candles: list[Candle]) -> MlModel:
         train_accuracy=0.0,
         positive_centroid=centroid(positive),
         negative_centroid=centroid(negative),
+        training_rows=samples,
     )
-    correct = sum(1 for sample in samples if int(model.score(sample.features) >= 0.5) == sample.label)
     return MlModel(
         trained=True,
         samples=model.samples,
         positive_samples=model.positive_samples,
         negative_samples=model.negative_samples,
-        train_accuracy=correct / len(samples) if samples else 0,
+        train_accuracy=validation_accuracy(samples),
         positive_centroid=model.positive_centroid,
         negative_centroid=model.negative_centroid,
+        training_rows=samples,
     )
 
 
@@ -107,6 +118,7 @@ def extract_features(candles: list[Candle]) -> list[float] | None:
 
     last = candles[-1]
     previous = candles[-2]
+    prev_momentum = rsi(closes[:-1], 14)
     candle_range = max(last.high - last.low, 0.00001)
     trend = clamp((fast - slow) / max(volatility, 0.00001), -2, 2) / 2
     normalized_momentum = (momentum - 50) / 50
@@ -114,6 +126,11 @@ def extract_features(candles: list[Candle]) -> list[float] | None:
     body_strength = clamp((last.close - last.open) / candle_range, -1, 1)
     last_return = clamp((last.close - previous.close) / max(volatility, 0.00001), -2, 2) / 2
     range_expansion = clamp(candle_range / max(average_range, 0.00001), 0, 3) / 3
+    distance_fast = clamp((last.close - fast) / max(volatility, 0.00001), -2, 2) / 2
+    distance_slow = clamp((last.close - slow) / max(volatility, 0.00001), -3, 3) / 3
+    momentum_slope = clamp(((momentum - prev_momentum) if prev_momentum is not None else 0.0) / 20, -1, 1)
+    upper_wick = clamp((last.high - max(last.close, last.open)) / candle_range, 0, 1)
+    lower_wick = clamp((min(last.close, last.open) - last.low) / candle_range, 0, 1)
     return [
         round(trend, 4),
         round(normalized_momentum, 4),
@@ -121,6 +138,11 @@ def extract_features(candles: list[Candle]) -> list[float] | None:
         round(body_strength, 4),
         round(last_return, 4),
         round(range_expansion, 4),
+        round(distance_fast, 4),
+        round(distance_slow, 4),
+        round(momentum_slope, 4),
+        round(upper_wick, 4),
+        round(lower_wick, 4),
     ]
 
 
@@ -150,8 +172,59 @@ def centroid(rows: list[list[float]]) -> list[float]:
     return [sum(row[index] for row in rows) / len(rows) for index in range(len(rows[0]))]
 
 
+def validation_accuracy(samples: list[TrainingSample]) -> float:
+    if len(samples) < 20:
+        correct = sum(1 for sample in samples if sample.label == majority_label(samples))
+        return correct / len(samples) if samples else 0.0
+
+    split = max(10, int(len(samples) * 0.7))
+    train = samples[:split]
+    test = samples[split:]
+    positive = [sample.features for sample in train if sample.label == 1]
+    negative = [sample.features for sample in train if sample.label == 0]
+    if len(positive) < 3 or len(negative) < 3 or not test:
+        correct = sum(1 for sample in samples if sample.label == majority_label(samples))
+        return correct / len(samples) if samples else 0.0
+
+    model = MlModel(
+        trained=True,
+        samples=len(train),
+        positive_samples=len(positive),
+        negative_samples=len(negative),
+        train_accuracy=0.0,
+        positive_centroid=centroid(positive),
+        negative_centroid=centroid(negative),
+        training_rows=train,
+    )
+    correct = sum(1 for sample in test if int(model.score(sample.features) >= 0.5) == sample.label)
+    return correct / len(test)
+
+
+def majority_label(samples: list[TrainingSample]) -> int:
+    positives = sum(sample.label for sample in samples)
+    return int(positives >= (len(samples) - positives))
+
+
 def euclidean(left: list[float], right: list[float]) -> float:
     return math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right)))
+
+
+def knn_score(features: list[float], rows: list[TrainingSample], k: int = 11) -> float:
+    if not rows:
+        return 0.5
+    neighbors = sorted(
+        ((euclidean(features, sample.features), sample.label) for sample in rows),
+        key=lambda item: item[0],
+    )[: max(3, min(k, len(rows)))]
+    weighted_positive = 0.0
+    total_weight = 0.0
+    for distance, label in neighbors:
+        weight = 1 / max(distance, 0.0001)
+        weighted_positive += weight * label
+        total_weight += weight
+    if total_weight <= 0:
+        return 0.5
+    return weighted_positive / total_weight
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:

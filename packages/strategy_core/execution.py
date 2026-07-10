@@ -15,10 +15,13 @@ from packages.strategy_core.profit_manager import get_profit_manager
 def execution_status(state_path: Path) -> dict[str, object]:
     state = read_execution_state(state_path)
     order = state.get("order") if isinstance(state.get("order"), dict) else None
+    bridge = bridge_status(state)
     return {
         "enabled": auto_trade_enabled(),
         "mode": os.getenv("AUTO_TRADE_MODE", "DEMO_ONLY"),
         "configured": bool(os.getenv("EXECUTION_SECRET")),
+        "bridgeOnline": bridge["online"],
+        "bridgeLastSeenAt": bridge["lastSeenAt"],
         "lot": env_float("AUTO_TRADE_LOT", 0.01),
         "maxOrdersPerDay": env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 3),
         "ttlSeconds": env_int("AUTO_TRADE_ORDER_TTL_SECONDS", 180),
@@ -76,8 +79,13 @@ def pending_order_eligibility(signal: Signal, state_path: Path) -> tuple[bool, s
         return False, "sem sinal operacional"
     if signal.entry is None or signal.stop_loss is None or not signal.take_profit:
         return False, "sinal sem entrada, stop ou alvo"
+    state = read_execution_state(state_path)
+    if env_bool("AUTO_TRADE_REQUIRE_BRIDGE_ONLINE", True):
+        bridge = bridge_status(state)
+        if not bridge["online"]:
+            return False, "ponte MT5 offline"
 
-    min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.72)
+    min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.80)
     if signal.confidence < min_confidence:
         return False, f"score abaixo do minimo ({round(min_confidence * 100)}%)"
     news_blocked, news_reason = news_block_active()
@@ -87,7 +95,6 @@ def pending_order_eligibility(signal: Signal, state_path: Path) -> tuple[bool, s
     if not passed_quality:
         return False, quality_reason
 
-    state = read_execution_state(state_path)
     if cleanup_stale_orders(state):
         write_execution_state(state_path, state)
         state = read_execution_state(state_path)
@@ -105,7 +112,7 @@ def pending_order_eligibility(signal: Signal, state_path: Path) -> tuple[bool, s
 
 def execution_quality_gate(signal: Signal) -> tuple[bool, str]:
     min_ml_score = max(
-        env_float("AUTO_TRADE_MIN_ML_SCORE", 0.55),
+        env_float("AUTO_TRADE_MIN_ML_SCORE", 0.65),
         env_float("SIGNAL_MIN_ML_SCORE", 0.55),
     )
     if signal.ml_score is not None and signal.ml_score < min_ml_score:
@@ -122,6 +129,19 @@ def execution_quality_gate(signal: Signal) -> tuple[bool, str]:
         return False, f"risco/retorno abaixo do minimo ({round(rr, 2)})"
 
     reasons = [str(reason).upper() for reason in signal.reason]
+    if env_bool("AUTO_TRADE_BLOCK_STALE_SETUP", True):
+        if any("SETUP DETECTADO HA 2" in reason or "SETUP DETECTADO HA 3" in reason for reason in reasons):
+            return False, "setup antigo demais para MT5"
+
+    if env_bool("AUTO_TRADE_BLOCK_FRIDAY_CLOSE", True):
+        if any("SEXTA PERTO DO FECHAMENTO" in reason for reason in reasons):
+            return False, "sexta perto do fechamento"
+
+    if env_bool("AUTO_TRADE_BLOCK_SCALPER", True):
+        scalper_terms = ("SCALP", "BOLLINGER", "MERCADO LATERAL", "RANGE")
+        if any(any(term in reason for term in scalper_terms) for reason in reasons):
+            return False, "scalper bloqueado para MT5"
+
     if env_bool("AUTO_TRADE_BLOCK_MTF_CONFLICT", True):
         conflict = f"CONTRA {signal.side}".upper()
         if any(conflict in reason for reason in reasons):
@@ -152,6 +172,8 @@ def news_block_active() -> tuple[bool, str]:
 
 def pending_order(state_path: Path) -> dict[str, object]:
     state = read_execution_state(state_path)
+    mark_bridge_seen(state)
+    write_execution_state(state_path, state)
     order = state.get("order") if isinstance(state.get("order"), dict) else None
     active = active_order(order)
     if active and active.get("status") == "PENDING":
@@ -161,6 +183,7 @@ def pending_order(state_path: Path) -> dict[str, object]:
 
 def claim_order(state_path: Path, order_id: str) -> dict[str, object]:
     state = read_execution_state(state_path)
+    mark_bridge_seen(state)
     order = state.get("order") if isinstance(state.get("order"), dict) else None
     active = active_order(order)
     if not active:
@@ -282,6 +305,21 @@ def authorize_execution(headers: object, payload: dict[str, object] | None = Non
 
 def auto_trade_enabled() -> bool:
     return os.getenv("AUTO_TRADE_ENABLED", "false").lower() == "true"
+
+
+def mark_bridge_seen(state: dict[str, object]) -> None:
+    state["bridgeLastSeenAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def bridge_status(state: dict[str, object]) -> dict[str, object]:
+    raw = state.get("bridgeLastSeenAt")
+    seen_at = parse_datetime(raw)
+    max_age = env_int("AUTO_TRADE_BRIDGE_MAX_AGE_SECONDS", 45)
+    online = bool(seen_at and (datetime.now(timezone.utc) - seen_at).total_seconds() <= max_age)
+    return {
+        "online": online,
+        "lastSeenAt": seen_at.isoformat(timespec="seconds") if seen_at else None,
+    }
 
 
 def active_order(order: dict[str, object] | None) -> dict[str, object] | None:
