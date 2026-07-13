@@ -24,6 +24,7 @@ FEATURE_NAMES = [
     "lower_wick",
 ]
 MODEL_VERSION = "knn-centroid-v2-bounded"
+DEFAULT_FREEZE_AT = "2026-07-13T23:59:59Z"
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,7 @@ class MlModel:
             "features": FEATURE_NAMES,
             "modelVersion": MODEL_VERSION,
             "referenceRows": len(self.training_rows),
-            "freezeAt": os.getenv("ML_FREEZE_AT_TIME") or None,
+            "freezeAt": os.getenv("ML_FREEZE_AT_TIME") or DEFAULT_FREEZE_AT,
         }
 
 
@@ -249,9 +250,7 @@ def representative_rows(rows: list[TrainingSample], limit: int = 150) -> list[Tr
 
 
 def frozen_training_candles(candles: list[Candle]) -> list[Candle]:
-    raw = str(os.getenv("ML_FREEZE_AT_TIME") or "").strip()
-    if not raw:
-        return candles
+    raw = str(os.getenv("ML_FREEZE_AT_TIME") or DEFAULT_FREEZE_AT).strip()
     try:
         cutoff = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         cutoff = cutoff if cutoff.tzinfo else cutoff.replace(tzinfo=timezone.utc)

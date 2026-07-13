@@ -62,7 +62,7 @@ DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 EURUSD_M5_FBS_DATASET = ROOT / "data" / "forex" / "eurusd_m5_fbs_real_12m.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.32.0"
+APP_VERSION = "0.32.1"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,

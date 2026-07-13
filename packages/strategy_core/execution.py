@@ -23,7 +23,7 @@ def execution_status(state_path: Path) -> dict[str, object]:
         "bridgeOnline": bridge["online"],
         "bridgeLastSeenAt": bridge["lastSeenAt"],
         "lot": env_float("AUTO_TRADE_LOT", 0.01),
-        "maxOrdersPerDay": env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 2),
+        "maxOrdersPerDay": safe_daily_order_limit(),
         "ttlSeconds": env_int("AUTO_TRADE_ORDER_TTL_SECONDS", 180),
         "claimedTtlSeconds": env_int("AUTO_TRADE_CLAIMED_TTL_SECONDS", 300),
         "pendingOrder": active_order(order),
@@ -394,13 +394,16 @@ def should_replace_active_order(active: dict[str, object], signal: Signal) -> tu
 
 
 def daily_order_limit_reached(state: dict[str, object]) -> bool:
-    limit = env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 2)
-    if limit <= 0:
-        return False
+    limit = safe_daily_order_limit()
     today = local_execution_day()
     if state.get("orderDay") != today:
         return False
     return int(state.get("ordersToday") or 0) >= limit
+
+
+def safe_daily_order_limit() -> int:
+    configured = env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 2)
+    return 2 if configured <= 0 else min(configured, 2)
 
 
 def execution_cooldown_ok(state: dict[str, object]) -> tuple[bool, str]:

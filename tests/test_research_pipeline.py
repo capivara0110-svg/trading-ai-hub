@@ -11,7 +11,7 @@ from packages.strategy_core.backtest import BacktestCosts
 from packages.strategy_core.data import Candle
 from packages.strategy_core.datasets import normalize_candle_time, parse_uploaded_candles
 from packages.strategy_core.decision_log import evaluate_decisions, record_decision
-from packages.strategy_core.execution import execution_cooldown_ok
+from packages.strategy_core.execution import execution_cooldown_ok, safe_daily_order_limit
 from packages.strategy_core.validation import simulate_trade
 from packages.strategy_core.walk_forward import run_walk_forward_validation
 from packages.strategy_core.ml_model import frozen_training_candles
@@ -113,6 +113,10 @@ class DecisionLogTests(unittest.TestCase):
         )
         self.assertFalse(allowed)
         self.assertIn("cooldown", reason)
+
+    def test_zero_daily_limit_falls_back_to_safe_limit(self) -> None:
+        with patch.dict("os.environ", {"AUTO_TRADE_MAX_ORDERS_PER_DAY": "0"}):
+            self.assertEqual(safe_daily_order_limit(), 2)
 
 
 def make_candles(count: int) -> list[Candle]:
