@@ -174,6 +174,9 @@ def detect_best_strategy(
     timeframe: str = 'M5',
 ) -> Signal:
     '''''Detecta qual estrategia usar baseado nas condicoes atuais do mercado.'''''
+    # The longest technical lookback below is 20 candles. A bounded buffer
+    # preserves the signal while avoiding quadratic work in long backtests.
+    candles = candles[-64:]
     closes = [candle.close for candle in candles]
     fast = sma(closes, 5)
     slow = sma(closes, 20)
@@ -624,4 +627,3 @@ def signal_reasons(reasons: list[str], trained: bool, score: float) -> list[str]
     if not trained:
         return reasons + ['IA aguardando mais dados para treino']
     return reasons + ['score ML ' + str(round(score * 100)) + '%']
-

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import math
+import heapq
+import os
+from datetime import datetime, timezone
 from dataclasses import dataclass
 
 from packages.strategy_core.data import Candle
@@ -20,6 +23,7 @@ FEATURE_NAMES = [
     "upper_wick",
     "lower_wick",
 ]
+MODEL_VERSION = "knn-centroid-v2-bounded"
 
 
 @dataclass(frozen=True)
@@ -61,10 +65,15 @@ class MlModel:
             "negativeSamples": self.negative_samples,
             "trainAccuracy": round(self.train_accuracy, 2),
             "features": FEATURE_NAMES,
+            "modelVersion": MODEL_VERSION,
+            "referenceRows": len(self.training_rows),
+            "freezeAt": os.getenv("ML_FREEZE_AT_TIME") or None,
         }
 
 
-def train_signal_quality_model(candles: list[Candle]) -> MlModel:
+def train_signal_quality_model(candles: list[Candle], respect_freeze: bool = True) -> MlModel:
+    if respect_freeze:
+        candles = frozen_training_candles(candles)
     samples = build_training_samples(candles)
     positive = [sample.features for sample in samples if sample.label == 1]
     negative = [sample.features for sample in samples if sample.label == 0]
@@ -80,7 +89,7 @@ def train_signal_quality_model(candles: list[Candle]) -> MlModel:
         train_accuracy=0.0,
         positive_centroid=centroid(positive),
         negative_centroid=centroid(negative),
-        training_rows=samples,
+        training_rows=representative_rows(samples),
     )
     return MlModel(
         trained=True,
@@ -90,14 +99,14 @@ def train_signal_quality_model(candles: list[Candle]) -> MlModel:
         train_accuracy=validation_accuracy(samples),
         positive_centroid=model.positive_centroid,
         negative_centroid=model.negative_centroid,
-        training_rows=samples,
+        training_rows=model.training_rows,
     )
 
 
 def build_training_samples(candles: list[Candle], lookahead: int = 6) -> list[TrainingSample]:
     samples: list[TrainingSample] = []
     for index in range(20, len(candles) - lookahead):
-        features = extract_features(candles[: index + 1])
+        features = extract_features(candles[max(0, index - 31) : index + 1])
         if features is None:
             continue
         label = label_future_move(candles, index, lookahead)
@@ -106,6 +115,9 @@ def build_training_samples(candles: list[Candle], lookahead: int = 6) -> list[Tr
 
 
 def extract_features(candles: list[Candle]) -> list[float] | None:
+    # Every current feature uses at most 21 recent candles. Keeping a small
+    # bounded window makes training linear even with year-long M5 datasets.
+    candles = candles[-32:]
     closes = [candle.close for candle in candles]
     fast = sma(closes, 5)
     slow = sma(closes, 20)
@@ -149,7 +161,7 @@ def extract_features(candles: list[Candle]) -> list[float] | None:
 def label_future_move(candles: list[Candle], index: int, lookahead: int) -> int:
     current = candles[index]
     future = candles[index + 1 : index + 1 + lookahead]
-    volatility = atr(candles[: index + 1], 14) or max(current.high - current.low, 0.00001)
+    volatility = atr(candles[max(0, index - 31) : index + 1], 14) or max(current.high - current.low, 0.00001)
     target = current.close + volatility * 1.2
     stop = current.close - volatility * 0.9
 
@@ -194,7 +206,7 @@ def validation_accuracy(samples: list[TrainingSample]) -> float:
         train_accuracy=0.0,
         positive_centroid=centroid(positive),
         negative_centroid=centroid(negative),
-        training_rows=train,
+        training_rows=representative_rows(train),
     )
     correct = sum(1 for sample in test if int(model.score(sample.features) >= 0.5) == sample.label)
     return correct / len(test)
@@ -212,10 +224,12 @@ def euclidean(left: list[float], right: list[float]) -> float:
 def knn_score(features: list[float], rows: list[TrainingSample], k: int = 11) -> float:
     if not rows:
         return 0.5
-    neighbors = sorted(
+    neighbor_count = max(3, min(k, len(rows)))
+    neighbors = heapq.nsmallest(
+        neighbor_count,
         ((euclidean(features, sample.features), sample.label) for sample in rows),
         key=lambda item: item[0],
-    )[: max(3, min(k, len(rows)))]
+    )
     weighted_positive = 0.0
     total_weight = 0.0
     for distance, label in neighbors:
@@ -225,6 +239,34 @@ def knn_score(features: list[float], rows: list[TrainingSample], k: int = 11) ->
     if total_weight <= 0:
         return 0.5
     return weighted_positive / total_weight
+
+
+def representative_rows(rows: list[TrainingSample], limit: int = 150) -> list[TrainingSample]:
+    """Keep a temporally distributed KNN reference set for bounded scoring cost."""
+    if len(rows) <= limit:
+        return rows
+    return [rows[min(len(rows) - 1, int(index * len(rows) / limit))] for index in range(limit)]
+
+
+def frozen_training_candles(candles: list[Candle]) -> list[Candle]:
+    raw = str(os.getenv("ML_FREEZE_AT_TIME") or "").strip()
+    if not raw:
+        return candles
+    try:
+        cutoff = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        cutoff = cutoff if cutoff.tzinfo else cutoff.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return candles
+    result = []
+    for candle in candles:
+        try:
+            stamp = datetime.fromisoformat(candle.time.replace("Z", "+00:00"))
+            stamp = stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if stamp <= cutoff:
+            result.append(candle)
+    return result if len(result) >= 25 else candles
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:

@@ -13,6 +13,10 @@ class Trade:
     entry: float
     exit: float
     result_pips: float
+    gross_result_pips: float = 0.0
+    cost_pips: float = 0.0
+    exit_time: str | None = None
+    exit_index: int | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -21,6 +25,9 @@ class Trade:
             "entry": self.entry,
             "exit": self.exit,
             "resultPips": round(self.result_pips, 1),
+            "grossResultPips": round(self.gross_result_pips, 1),
+            "costPips": round(self.cost_pips, 1),
+            "exitTime": self.exit_time,
         }
 
 
@@ -34,6 +41,7 @@ class BacktestResult:
     average_loss_pips: float
     payoff: float
     profit_factor: float
+    total_cost_pips: float = 0.0
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -46,11 +54,38 @@ class BacktestResult:
             "payoff": round(self.payoff, 2),
             "profitFactor": round(self.profit_factor, 2),
             "totalTrades": len(self.trades),
+            "totalCostPips": round(self.total_cost_pips, 1),
         }
 
 
-def run_backtest(candles: list[Candle], lookahead: int = 6, min_confidence: float = 0.58) -> BacktestResult:
+@dataclass(frozen=True)
+class BacktestCosts:
+    spread_pips: float = 0.0
+    slippage_pips: float = 0.0
+    commission_pips: float = 0.0
+
+    @property
+    def round_trip_pips(self) -> float:
+        return max(0.0, self.spread_pips) + max(0.0, self.slippage_pips) + max(0.0, self.commission_pips)
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "spreadPips": self.spread_pips,
+            "slippagePips": self.slippage_pips,
+            "commissionPips": self.commission_pips,
+            "roundTripPips": self.round_trip_pips,
+        }
+
+
+def run_backtest(
+    candles: list[Candle],
+    lookahead: int = 24,
+    min_confidence: float = 0.58,
+    costs: BacktestCosts | None = None,
+    symbol: str = "EURUSD",
+) -> BacktestResult:
     trades: list[Trade] = []
+    costs = costs or BacktestCosts()
 
     for index in range(20, len(candles) - lookahead):
         window = candles[: index + 1]
@@ -81,9 +116,10 @@ def run_backtest(candles: list[Candle], lookahead: int = 6, min_confidence: floa
                     exit_price = target
                     break
 
-        result_pips = price_to_pips(exit_price - entry)
+        gross_result_pips = price_to_pips(exit_price - entry, symbol)
         if signal.side == "SELL":
-            result_pips *= -1
+            gross_result_pips *= -1
+        result_pips = gross_result_pips - costs.round_trip_pips
 
         trades.append(
             Trade(
@@ -92,6 +128,8 @@ def run_backtest(candles: list[Candle], lookahead: int = 6, min_confidence: floa
                 entry=round(entry, 5),
                 exit=round(exit_price, 5),
                 result_pips=result_pips,
+                gross_result_pips=gross_result_pips,
+                cost_pips=costs.round_trip_pips,
             )
         )
 
@@ -112,11 +150,12 @@ def run_backtest(candles: list[Candle], lookahead: int = 6, min_confidence: floa
         average_loss_pips=average_loss,
         payoff=average_win / average_loss if average_loss else 0,
         profit_factor=gross_profit / gross_loss if gross_loss else 0,
+        total_cost_pips=sum(trade.cost_pips for trade in trades),
     )
 
 
-def price_to_pips(value: float) -> float:
-    return value * 10000
+def price_to_pips(value: float, symbol: str = "EURUSD") -> float:
+    return value * (100 if "JPY" in symbol.upper() else 10000)
 
 
 def calculate_drawdown(trades: list[Trade]) -> float:

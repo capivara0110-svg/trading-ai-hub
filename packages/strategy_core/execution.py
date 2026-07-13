@@ -23,7 +23,7 @@ def execution_status(state_path: Path) -> dict[str, object]:
         "bridgeOnline": bridge["online"],
         "bridgeLastSeenAt": bridge["lastSeenAt"],
         "lot": env_float("AUTO_TRADE_LOT", 0.01),
-        "maxOrdersPerDay": env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 3),
+        "maxOrdersPerDay": env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 2),
         "ttlSeconds": env_int("AUTO_TRADE_ORDER_TTL_SECONDS", 180),
         "claimedTtlSeconds": env_int("AUTO_TRADE_CLAIMED_TTL_SECONDS", 300),
         "pendingOrder": active_order(order),
@@ -107,10 +107,19 @@ def pending_order_eligibility(signal: Signal, state_path: Path) -> tuple[bool, s
             return False, replace_reason
     if daily_order_limit_reached(state):
         return False, "limite diario de ordens atingido"
+    cooldown_ok, cooldown_reason = execution_cooldown_ok(state)
+    if not cooldown_ok:
+        return False, cooldown_reason
     return True, "elegivel para auto trade"
 
 
 def execution_quality_gate(signal: Signal) -> tuple[bool, str]:
+    if env_bool("AUTO_TRADE_SESSION_GUARD", True):
+        hour = datetime.now(timezone.utc).hour
+        start = env_int("AUTO_TRADE_UTC_START_HOUR", 7)
+        end = env_int("AUTO_TRADE_UTC_END_HOUR", 20)
+        if not start <= hour < end:
+            return False, "fora das sessoes Londres/Nova York"
     min_ml_score = max(
         env_float("AUTO_TRADE_MIN_ML_SCORE", 0.65),
         env_float("SIGNAL_MIN_ML_SCORE", 0.55),
@@ -385,13 +394,33 @@ def should_replace_active_order(active: dict[str, object], signal: Signal) -> tu
 
 
 def daily_order_limit_reached(state: dict[str, object]) -> bool:
-    limit = env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 3)
+    limit = env_int("AUTO_TRADE_MAX_ORDERS_PER_DAY", 2)
     if limit <= 0:
         return False
     today = local_execution_day()
     if state.get("orderDay") != today:
         return False
     return int(state.get("ordersToday") or 0) >= limit
+
+
+def execution_cooldown_ok(state: dict[str, object]) -> tuple[bool, str]:
+    minutes = env_int("AUTO_TRADE_COOLDOWN_MINUTES", 60)
+    if minutes <= 0:
+        return True, "cooldown desativado"
+    orders = state.get("orders") if isinstance(state.get("orders"), dict) else {}
+    closed_times = []
+    for order in orders.values():
+        if not isinstance(order, dict) or str(order.get("status")) not in {"WIN", "LOSS"}:
+            continue
+        stamp = parse_datetime(order.get("closedAt") or order.get("updatedAt"))
+        if stamp:
+            closed_times.append(stamp)
+    if not closed_times:
+        return True, "sem fechamento recente"
+    elapsed = (datetime.now(timezone.utc) - max(closed_times)).total_seconds() / 60
+    if elapsed < minutes:
+        return False, f"cooldown apos fechamento: {minutes - int(elapsed)} min restantes"
+    return True, "cooldown concluido"
 
 
 def increment_daily_count(state: dict[str, object], now: datetime) -> None:

@@ -15,13 +15,14 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from packages.strategy_core.backtest import run_backtest
+from packages.strategy_core.backtest import BacktestCosts, run_backtest
 from packages.strategy_core.alpha_vantage import alpha_vantage_status
 from packages.strategy_core.alpha_vantage import fetch_fx_intraday
 from packages.strategy_core.data import load_candles
 from packages.strategy_core.datasets import DatasetStore
 from packages.strategy_core.datasets import Dataset
 from packages.strategy_core.datasets import candles_from_payload
+from packages.strategy_core.decision_log import evaluate_decisions, load_decisions, record_decision, update_decision_execution
 from packages.strategy_core.market_hours import forex_market_status
 from packages.strategy_core.market_hours import session_confidence_adjustment
 from packages.strategy_core.market_hours import should_skip_forex_scan
@@ -53,18 +54,21 @@ from packages.strategy_core.telegram_alerts import telegram_config_status
 from packages.strategy_core.twelve_data import fetch_time_series
 from packages.strategy_core.twelve_data import twelve_data_status
 from packages.strategy_core.validation import run_out_of_sample_validation
+from packages.strategy_core.walk_forward import run_walk_forward_validation
 from packages.strategy_core.profit_manager import get_profit_manager
 
 
 DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
+EURUSD_M5_FBS_DATASET = ROOT / "data" / "forex" / "eurusd_m5_fbs_real_12m.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.30.0"
+APP_VERSION = "0.32.0"
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
     bundled_datasets=[
         Dataset("eurusd-d1-yahoo", "EURUSD", "D1", EURUSD_D1_DATASET, 0),
+        Dataset("eurusd-m5-fbs-real-12m", "EURUSD", "M5", EURUSD_M5_FBS_DATASET, 0),
     ],
 )
 TELEGRAM_ALERT_STATE = ROOT / "data" / "uploads" / "telegram_alert_state.json"
@@ -72,6 +76,7 @@ TELEGRAM_STATUS_STATE = ROOT / "data" / "uploads" / "telegram_status_state.json"
 JOB_STATE = ROOT / "data" / "uploads" / "job_state.json"
 SIGNAL_HISTORY = ROOT / "data" / "uploads" / "signal_history.json"
 EXECUTION_STATE = ROOT / "data" / "uploads" / "execution_state.json"
+DECISION_LOG = ROOT / "data" / "uploads" / "decision_log.json"
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -113,7 +118,8 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/backtest":
             candles = load_candles(DATASETS.active_path())
-            self.send_json(run_backtest(candles).to_dict())
+            dataset = DATASETS.active_dataset()
+            self.send_json(run_backtest(candles, costs=backtest_costs(parsed.query), symbol=dataset.symbol if dataset else "EURUSD").to_dict())
             return
 
         if parsed.path == "/ml/status":
@@ -123,7 +129,26 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/ml/validation":
             candles = load_candles(DATASETS.active_path())
-            self.send_json(run_out_of_sample_validation(candles).to_dict())
+            dataset = DATASETS.active_dataset()
+            self.send_json(run_out_of_sample_validation(candles, costs=backtest_costs(parsed.query), symbol=dataset.symbol if dataset else "EURUSD").to_dict())
+            return
+
+        if parsed.path == "/ml/walk-forward":
+            candles = load_candles(DATASETS.active_path())
+            dataset = DATASETS.active_dataset()
+            query = parse_qs(parsed.query)
+            self.send_json(
+                run_walk_forward_validation(
+                    candles,
+                    train_candles=query_int(query, "trainCandles", 80),
+                    test_candles=query_int(query, "testCandles", 40),
+                    step_candles=query_int(query, "stepCandles", 40),
+                    min_confidence=query_float(query, "minConfidence", 0.58),
+                    ml_threshold=query_float(query, "mlThreshold", 0.55),
+                    costs=backtest_costs(parsed.query),
+                    symbol=dataset.symbol if dataset else "EURUSD",
+                )
+            )
             return
 
         if parsed.path == "/alerts/telegram/status":
@@ -152,6 +177,11 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/signals/history":
             self.send_json(current_signal_history())
+            return
+
+        if parsed.path == "/signals/decisions":
+            decisions = load_decisions(DECISION_LOG)
+            self.send_json({"decisions": decisions[-500:], "total": len(decisions)})
             return
 
         if parsed.path == "/execution/status":
@@ -193,6 +223,7 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     symbol=str(payload.get("symbol") or ""),
                     timeframe=str(payload.get("timeframe") or ""),
                     content=str(payload.get("content") or ""),
+                    source_timezone=str(payload.get("sourceTimezone") or "").strip() or None,
                 )
                 self.send_json({"dataset": dataset.to_dict(DATASETS.active_id())}, status=201)
                 return
@@ -302,6 +333,7 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     return
                 order_id = str(payload.get("id") or "")
                 result = mark_order_result(EXECUTION_STATE, order_id, payload)
+                update_decision_execution(DECISION_LOG, order_id, payload)
                 if result.get("shouldNotify") and isinstance(result.get("order"), dict):
                     try:
                         telegram = send_telegram_message(format_order_result_message(result["order"]))
@@ -500,6 +532,31 @@ def redact_log_line(value: str) -> str:
     return re.sub(r"(secret=)[^&\s\"]+", r"\1***", value)
 
 
+def query_float(query: dict[str, list[str]], name: str, default: float) -> float:
+    raw = (query.get(name) or [str(default)])[0]
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def query_int(query: dict[str, list[str]], name: str, default: int) -> int:
+    raw = (query.get(name) or [str(default)])[0]
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def backtest_costs(raw_query: str) -> BacktestCosts:
+    query = parse_qs(raw_query)
+    return BacktestCosts(
+        spread_pips=query_float(query, "spreadPips", float(os.getenv("BACKTEST_SPREAD_PIPS", "0"))),
+        slippage_pips=query_float(query, "slippagePips", float(os.getenv("BACKTEST_SLIPPAGE_PIPS", "0"))),
+        commission_pips=query_float(query, "commissionPips", float(os.getenv("BACKTEST_COMMISSION_PIPS", "0"))),
+    )
+
+
 def latest_signal() -> object:
     dataset = DATASETS.active_dataset()
     candles = load_candles(DATASETS.active_path())
@@ -522,6 +579,14 @@ def check_and_send_latest_alert() -> dict[str, object]:
     signal = apply_session_adjustment(signal)
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
     execution = create_execution_for_signal(signal, candles[-1].time if candles else None)
+    decision = record_decision(
+        DECISION_LOG,
+        candles[-1].time if candles else None,
+        signal,
+        should_send,
+        reason,
+        execution,
+    )
     history_item = None
     if not should_send:
         if execution.get("created"):
@@ -532,6 +597,7 @@ def check_and_send_latest_alert() -> dict[str, object]:
             "signal": signal.to_dict(),
             "history": history_item,
             "execution": execution,
+            "decision": decision,
         }
     ai_allowed = bool(execution.get("created"))
     result = send_telegram_message(
@@ -549,6 +615,7 @@ def check_and_send_latest_alert() -> dict[str, object]:
         "signal": signal.to_dict(),
         "history": history_item,
         "execution": execution,
+        "decision": decision,
     }
 
 
@@ -578,6 +645,7 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
     dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
     confirmation_datasets = refresh_confirmation_timeframes(symbol, timeframe)
     performance = evaluate_history(SIGNAL_HISTORY, candles)
+    decision_performance = evaluate_decisions(DECISION_LOG, candles)
     paper_notifications = notify_closed_paper_signals(performance)
     alert = check_and_send_latest_alert()
     market = forex_market_status(candles)
@@ -591,6 +659,7 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
         "alert": alert,
         "statusUpdate": status_update,
         "performance": performance,
+        "decisionPerformance": decision_performance,
         "paperNotifications": paper_notifications,
         "confirmations": confirmation_datasets,
     }

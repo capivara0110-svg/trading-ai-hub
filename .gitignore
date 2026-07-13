@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 .env
 data/uploads/
+data/forex/eurusd_m5_fbs_*_12m.csv

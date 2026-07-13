@@ -38,6 +38,7 @@ def fetch_time_series(symbol: str, timeframe: str, outputsize: int = 100) -> lis
             "symbol": normalize_symbol(symbol),
             "interval": interval,
             "outputsize": max(25, min(outputsize, 5000)),
+            "timezone": "UTC",
             "apikey": api_key,
             "format": "JSON",
         }
@@ -55,7 +56,7 @@ def fetch_time_series(symbol: str, timeframe: str, outputsize: int = 100) -> lis
 
     candles = [
         Candle(
-            time=str(row["datetime"]),
+            time=f"{row['datetime']}Z",
             open=float(row["open"]),
             high=float(row["high"]),
             low=float(row["low"]),

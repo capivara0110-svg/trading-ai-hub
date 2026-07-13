@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from packages.strategy_core.data import Candle, load_candles
 
@@ -102,13 +104,13 @@ class DatasetStore:
         self.state_path.write_text(json.dumps({"activeDataset": dataset.id}, indent=2), encoding="utf-8")
         return dataset
 
-    def save_csv(self, symbol: str, timeframe: str, content: str) -> Dataset:
+    def save_csv(self, symbol: str, timeframe: str, content: str, source_timezone: str | None = None) -> Dataset:
         clean_symbol = normalize_id(symbol)
         clean_timeframe = normalize_id(timeframe)
         if not clean_symbol or not clean_timeframe:
             raise ValueError("Informe ativo e timeframe validos")
 
-        candles = parse_uploaded_candles(content)
+        candles = parse_uploaded_candles(content, source_timezone=source_timezone)
         dataset_id = f"{clean_symbol.lower()}-{clean_timeframe.lower()}"
         path = self.uploads / f"{dataset_id}.csv"
         path.write_text(normalize_csv(candles), encoding="utf-8")
@@ -141,7 +143,7 @@ def normalize_id(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", value or "").upper()
 
 
-def parse_uploaded_candles(content: str) -> list[Candle]:
+def parse_uploaded_candles(content: str, source_timezone: str | None = None) -> list[Candle]:
     rows = content.replace("\ufeff", "").strip()
     if not rows:
         raise ValueError("CSV vazio")
@@ -164,7 +166,7 @@ def parse_uploaded_candles(content: str) -> list[Candle]:
 
     candles = [
         Candle(
-            time=row_time(row, field_map),
+            time=normalize_candle_time(row_time(row, field_map), source_timezone),
             open=float(row[field_map["open"]]),
             high=float(row[field_map["high"]]),
             low=float(row[field_map["low"]]),
@@ -176,6 +178,61 @@ def parse_uploaded_candles(content: str) -> list[Candle]:
     if len(candles) < 25:
         raise ValueError("CSV precisa ter pelo menos 25 candles")
     return candles
+
+
+def normalize_candle_time(value: str, source_timezone: str | None = None) -> str:
+    """Return an ISO-like UTC timestamp when the source timezone is known.
+
+    Naive legacy timestamps are preserved unless callers explicitly identify the
+    broker/source timezone. This avoids silently shifting existing datasets.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("Candle sem horario")
+
+    parsed = parse_candle_datetime(raw)
+    if parsed.tzinfo is None:
+        if not source_timezone:
+            return parsed.isoformat(sep=" ", timespec="seconds")
+        parsed = parsed.replace(tzinfo=source_timezone_info(source_timezone))
+
+    return parsed.astimezone(timezone.utc).isoformat(sep=" ", timespec="seconds").replace("+00:00", "Z")
+
+
+def source_timezone_info(value: str):
+    raw = value.strip()
+    offset_match = re.fullmatch(r"(?:UTC)?([+-])(\d{1,2})(?::?(\d{2}))?", raw, re.IGNORECASE)
+    if offset_match:
+        direction = 1 if offset_match.group(1) == "+" else -1
+        hours = int(offset_match.group(2))
+        minutes = int(offset_match.group(3) or 0)
+        if hours > 14 or minutes > 59:
+            raise ValueError(f"Timezone de origem invalido: {value}")
+        return timezone(direction * timedelta(hours=hours, minutes=minutes))
+    try:
+        return ZoneInfo(raw)
+    except ZoneInfoNotFoundError as error:
+        raise ValueError(
+            f"Timezone de origem indisponivel: {value}. Use um offset como -03:00 ou +02:00."
+        ) from error
+
+
+def parse_candle_datetime(value: str) -> datetime:
+    normalized = value.strip().replace("Z", "+00:00")
+    formats = (
+        None,
+        "%Y.%m.%d %H:%M:%S",
+        "%Y.%m.%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+    )
+    for fmt in formats:
+        try:
+            return datetime.fromisoformat(normalized) if fmt is None else datetime.strptime(normalized, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Horario de candle invalido: {value}")
 
 
 def normalize_csv(candles: list[Candle]) -> str:

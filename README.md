@@ -126,9 +126,11 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/datasets`
 - `http://127.0.0.1:8765/signals/latest`
 - `http://127.0.0.1:8765/signals/history`
+- `http://127.0.0.1:8765/signals/decisions`
 - `http://127.0.0.1:8765/backtest`
 - `http://127.0.0.1:8765/ml/status`
 - `http://127.0.0.1:8765/ml/validation`
+- `http://127.0.0.1:8765/ml/walk-forward`
 - `http://127.0.0.1:8765/alerts/telegram/status`
 - `http://127.0.0.1:8765/ai/status`
 - `http://127.0.0.1:8765/jobs/status`
@@ -218,6 +220,23 @@ Tambem aceita o formato comum exportado pelo MT5:
 
 O CSV precisa ter pelo menos 25 candles. Apos importar, o dataset vira o ativo e o painel passa a calcular sinal/backtest usando esse historico.
 
+Para exportacoes MT5, envie tambem `sourceTimezone` no endpoint de importacao (por exemplo,
+`-03:00` ou `+02:00`, conforme o horario do servidor da corretora). O Hub
+normaliza esses candles para UTC. Horarios antigos sem timezone sao preservados para evitar
+conversoes silenciosas.
+
+## Custos e walk-forward
+
+Os endpoints `/backtest` e `/ml/validation` aceitam `spreadPips`, `slippagePips` e
+`commissionPips` na query string. Os mesmos custos podem ser definidos por padrao com
+`BACKTEST_SPREAD_PIPS`, `BACKTEST_SLIPPAGE_PIPS` e `BACKTEST_COMMISSION_PIPS`.
+
+Exemplo de validacao em varias janelas temporais:
+
+```text
+GET /ml/walk-forward?trainCandles=5000&testCandles=1000&stepCandles=1000&spreadPips=1.0&slippagePips=0.2&commissionPips=0.1
+```
+
 ## Alertas Telegram
 
 Configure no Railway:
@@ -242,6 +261,11 @@ SIGNAL_LOOKBACK_CANDLES=4
 AUTO_SCAN_ENABLED=true
 AUTO_SCAN_INTERVAL_SECONDS=300
 AUTO_SCAN_INITIAL_DELAY_SECONDS=20
+AUTO_TRADE_MAX_ORDERS_PER_DAY=2
+AUTO_TRADE_COOLDOWN_MINUTES=60
+AUTO_TRADE_SESSION_GUARD=true
+AUTO_TRADE_UTC_START_HOUR=7
+AUTO_TRADE_UTC_END_HOUR=20
 MTF_CONFIRMATION_ENABLED=true
 MTF_CONFIRM_TIMEFRAMES=M15,H1
 MTF_OUTPUTSIZE=120
@@ -254,6 +278,8 @@ SESSION_NY_START=09:00
 SESSION_NY_END=17:00
 SESSION_OVERLAP_BONUS=0.06
 SESSION_DEAD_ZONE_PENALTY=-0.04
+ML_FREEZE_AT_TIME=2026-07-13T00:00:00Z
+PAPER_COST_PIPS=1.3
 FOREX_MARKET_GUARD=true
 FOREX_FRIDAY_CLOSE_HOUR=18
 FOREX_SUNDAY_OPEN_HOUR=18
