@@ -50,9 +50,14 @@ Reserva da ordem antes de executar:
 POST /execution/claim
 {
   "secret": "SUA_SENHA",
-  "id": "ORDER_ID"
+  "id": "ORDER_ID",
+  "accountMode": "DEMO"
 }
 ```
+
+Quando `AUTO_TRADE_MODE=DEMO_ONLY`, a API recusa a reserva se o proprio MT5 nao
+confirmar `accountMode=DEMO`. Essa trava funciona junto com `InpDemoOnly=true`
+no EA, protegendo os dois lados da conexao.
 
 Resultado depois da tentativa no MT5:
 

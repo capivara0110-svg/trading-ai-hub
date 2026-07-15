@@ -190,9 +190,17 @@ def pending_order(state_path: Path) -> dict[str, object]:
     return {"enabled": auto_trade_enabled(), "order": None}
 
 
-def claim_order(state_path: Path, order_id: str) -> dict[str, object]:
+def claim_order(state_path: Path, order_id: str, account_mode: str = "") -> dict[str, object]:
     state = read_execution_state(state_path)
     mark_bridge_seen(state)
+    configured_mode = normalized_env("AUTO_TRADE_MODE").upper() or "DEMO_ONLY"
+    reported_mode = str(account_mode or "").strip().upper()
+    if configured_mode == "DEMO_ONLY" and reported_mode != "DEMO":
+        write_execution_state(state_path, state)
+        return {
+            "claimed": False,
+            "reason": "modo DEMO_ONLY exige conta demo confirmada pelo MT5",
+        }
     order = state.get("order") if isinstance(state.get("order"), dict) else None
     active = active_order(order)
     if not active:

@@ -323,7 +323,13 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                 if not authorize_execution(self.headers, payload):
                     self.send_json({"error": "execucao nao autorizada"}, status=401)
                     return
-                self.send_json(claim_order(EXECUTION_STATE, str(payload.get("id") or "")))
+                self.send_json(
+                    claim_order(
+                        EXECUTION_STATE,
+                        str(payload.get("id") or ""),
+                        str(payload.get("accountMode") or ""),
+                    )
+                )
                 return
 
             if parsed.path == "/execution/result":

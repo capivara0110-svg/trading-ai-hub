@@ -421,7 +421,8 @@ void ManageBreakEven()
 
 bool ClaimOrder(const string orderId)
 {
-   string body = "{\"secret\":\"" + JsonEscape(InpExecutionSecret) + "\",\"id\":\"" + JsonEscape(orderId) + "\"}";
+   string accountMode = AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO ? "DEMO" : "REAL";
+   string body = "{\"secret\":\"" + JsonEscape(InpExecutionSecret) + "\",\"id\":\"" + JsonEscape(orderId) + "\",\"accountMode\":\"" + accountMode + "\"}";
    string response = "";
    int status = HttpPost(InpApiBaseUrl + "/execution/claim", body, response);
    if(status != 200)
