@@ -37,6 +37,11 @@ class ExecutionDemoGuardTests(unittest.TestCase):
         self.assertTrue(result["claimed"])
         self.assertEqual("CLAIMED", result["order"]["status"])
 
+    def test_demo_only_accepts_contest_account(self):
+        with patch.dict(os.environ, {"AUTO_TRADE_MODE": "DEMO_ONLY"}):
+            result = claim_order(self.state_path, "order-1", "CONTEST")
+        self.assertTrue(result["claimed"])
+
 
 if __name__ == "__main__":
     unittest.main()

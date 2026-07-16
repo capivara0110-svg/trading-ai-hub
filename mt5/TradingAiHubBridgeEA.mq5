@@ -47,7 +47,8 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
 
-   if(InpDemoOnly && AccountInfoInteger(ACCOUNT_TRADE_MODE) != ACCOUNT_TRADE_MODE_DEMO)
+   long accountMode = AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   if(InpDemoOnly && accountMode != ACCOUNT_TRADE_MODE_DEMO && accountMode != ACCOUNT_TRADE_MODE_CONTEST)
    {
       Print("Trading AI Hub: InpDemoOnly=true. Use primeiro em conta DEMO.");
       return INIT_FAILED;
@@ -421,7 +422,8 @@ void ManageBreakEven()
 
 bool ClaimOrder(const string orderId)
 {
-   string accountMode = AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO ? "DEMO" : "REAL";
+   long tradeMode = AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   string accountMode = tradeMode == ACCOUNT_TRADE_MODE_DEMO ? "DEMO" : (tradeMode == ACCOUNT_TRADE_MODE_CONTEST ? "CONTEST" : "REAL");
    string body = "{\"secret\":\"" + JsonEscape(InpExecutionSecret) + "\",\"id\":\"" + JsonEscape(orderId) + "\",\"accountMode\":\"" + accountMode + "\"}";
    string response = "";
    int status = HttpPost(InpApiBaseUrl + "/execution/claim", body, response);

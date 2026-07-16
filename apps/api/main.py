@@ -62,7 +62,8 @@ DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 EURUSD_M5_FBS_DATASET = ROOT / "data" / "forex" / "eurusd_m5_fbs_real_12m.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.32.1"
+APP_VERSION = "0.33.0"
+RUNTIME_DATA_DIR = Path(os.getenv("RUNTIME_DATA_DIR", str(ROOT / "data" / "uploads"))).expanduser()
 DATASETS = DatasetStore(
     ROOT,
     DEFAULT_DATASET,
@@ -70,13 +71,14 @@ DATASETS = DatasetStore(
         Dataset("eurusd-d1-yahoo", "EURUSD", "D1", EURUSD_D1_DATASET, 0),
         Dataset("eurusd-m5-fbs-real-12m", "EURUSD", "M5", EURUSD_M5_FBS_DATASET, 0),
     ],
+    uploads=RUNTIME_DATA_DIR,
 )
-TELEGRAM_ALERT_STATE = ROOT / "data" / "uploads" / "telegram_alert_state.json"
-TELEGRAM_STATUS_STATE = ROOT / "data" / "uploads" / "telegram_status_state.json"
-JOB_STATE = ROOT / "data" / "uploads" / "job_state.json"
-SIGNAL_HISTORY = ROOT / "data" / "uploads" / "signal_history.json"
-EXECUTION_STATE = ROOT / "data" / "uploads" / "execution_state.json"
-DECISION_LOG = ROOT / "data" / "uploads" / "decision_log.json"
+TELEGRAM_ALERT_STATE = RUNTIME_DATA_DIR / "telegram_alert_state.json"
+TELEGRAM_STATUS_STATE = RUNTIME_DATA_DIR / "telegram_status_state.json"
+JOB_STATE = RUNTIME_DATA_DIR / "job_state.json"
+SIGNAL_HISTORY = RUNTIME_DATA_DIR / "signal_history.json"
+EXECUTION_STATE = RUNTIME_DATA_DIR / "execution_state.json"
+DECISION_LOG = RUNTIME_DATA_DIR / "decision_log.json"
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",

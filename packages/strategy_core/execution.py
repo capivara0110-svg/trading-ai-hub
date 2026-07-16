@@ -195,7 +195,7 @@ def claim_order(state_path: Path, order_id: str, account_mode: str = "") -> dict
     mark_bridge_seen(state)
     configured_mode = normalized_env("AUTO_TRADE_MODE").upper() or "DEMO_ONLY"
     reported_mode = str(account_mode or "").strip().upper()
-    if configured_mode == "DEMO_ONLY" and reported_mode != "DEMO":
+    if configured_mode == "DEMO_ONLY" and reported_mode not in {"DEMO", "CONTEST"}:
         write_execution_state(state_path, state)
         return {
             "claimed": False,

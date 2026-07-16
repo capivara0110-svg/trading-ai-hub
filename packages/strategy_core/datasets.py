@@ -30,9 +30,15 @@ class Dataset:
 
 
 class DatasetStore:
-    def __init__(self, root: Path, default_dataset: Path, bundled_datasets: list[Dataset] | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        default_dataset: Path,
+        bundled_datasets: list[Dataset] | None = None,
+        uploads: Path | None = None,
+    ) -> None:
         self.root = root
-        self.uploads = root / "data" / "uploads"
+        self.uploads = uploads or root / "data" / "uploads"
         self.state_path = self.uploads / "state.json"
         self.default_dataset = default_dataset
         self.bundled_datasets = bundled_datasets or []
