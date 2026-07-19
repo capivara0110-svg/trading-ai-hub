@@ -9,7 +9,18 @@ from pathlib import Path
 from packages.strategy_core.market_hours import get_market_timezone
 from packages.strategy_core.signals import Signal
 from packages.strategy_core.signals import risk_reward_ratio
+from packages.strategy_core.signals import min_confluence_required, calculate_confluence
 from packages.strategy_core.profit_manager import get_profit_manager
+from packages.strategy_core.advanced_filters import (
+    max_drawdown_protection,
+    record_trade_result,
+    dynamic_spread_filter,
+    detect_candlestick_patterns,
+    candlestick_boost,
+    smart_exit_check,
+    record_trade_performance,
+    get_performance_summary,
+)
 
 
 def execution_status(state_path: Path) -> dict[str, object]:
@@ -79,6 +90,12 @@ def pending_order_eligibility(signal: Signal, state_path: Path) -> tuple[bool, s
         return False, "sem sinal operacional"
     if signal.entry is None or signal.stop_loss is None or not signal.take_profit:
         return False, "sinal sem entrada, stop ou alvo"
+
+    drawdown_state_path = state_path.parent / "drawdown_state.json"
+    blocked, drawdown_reason = max_drawdown_protection(drawdown_state_path)
+    if blocked:
+        return False, drawdown_reason
+
     state = read_execution_state(state_path)
     if env_bool("AUTO_TRADE_REQUIRE_BRIDGE_ONLINE", True):
         bridge = bridge_status(state)
@@ -161,6 +178,24 @@ def execution_quality_gate(signal: Signal) -> tuple[bool, str]:
         confirmation = f"CONFIRMA {signal.side}".upper()
         if not any(confirmation in reason for reason in reasons):
             return False, "sem confirmacao M15/H1 a favor"
+
+    confluence_reasons = [r for r in signal.reason if 'confluencia' in r.lower()]
+    if confluence_reasons:
+        has_confluence = any('insuficiente' not in r.lower() for r in confluence_reasons)
+        if not has_confluence:
+            return False, "confluencia de indicadores insuficiente"
+
+    if env_bool("AUTO_TRADE_REQUIRE_CONFLUENCE", True):
+        from packages.strategy_core.data import load_candles
+        from packages.strategy_core.indicators import atr
+        try:
+            from packages.strategy_core.signals import calculate_confluence
+            min_conf = min_confluence_required()
+            confluence_count, _ = calculate_confluence([], signal.side)
+            if confluence_count < min_conf:
+                return False, f"confluencia minima nao atingida ({confluence_count}/{min_conf})"
+        except Exception:
+            pass
 
     return True, "qualidade aprovada"
 
@@ -248,6 +283,16 @@ def mark_order_result(state_path: Path, order_id: str, payload: dict[str, object
         order["closePrice"] = payload.get("closePrice", payload.get("fillPrice"))
         order["profit"] = payload.get("profit")
         order["resultPips"] = result_pips(order)
+        pnl_pips = float(order.get("resultPips") or 0)
+        drawdown_state_path = state_path.parent / "drawdown_state.json"
+        record_trade_result(drawdown_state_path, pnl_pips)
+        perf_state_path = state_path.parent / "performance_metrics.json"
+        record_trade_performance(
+            perf_state_path,
+            pnl_pips,
+            strategy_style=str(order.get("strategyStyle", "")),
+            symbol=str(order.get("symbol", "EURUSD")),
+        )
     order["updatedAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     order["brokerTicket"] = payload.get("brokerTicket") or order.get("brokerTicket")
     order["brokerMessage"] = payload.get("message")

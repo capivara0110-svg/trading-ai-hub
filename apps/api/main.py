@@ -204,6 +204,12 @@ class TradingApiHandler(BaseHTTPRequestHandler):
             self.send_json(pm.to_dict())
             return
 
+        if parsed.path == "/performance/metrics":
+            from packages.strategy_core.advanced_filters import get_performance_summary
+            perf_state = RUNTIME_DATA_DIR / "performance_metrics.json"
+            self.send_json(get_performance_summary(perf_state))
+            return
+
         if self.send_static(parsed.path):
             return
 

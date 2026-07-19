@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from enum import Enum
 
 from packages.strategy_core.data import Candle
-from packages.strategy_core.indicators import atr, rsi, sma, bollinger_bands, support_resistance
+from packages.strategy_core.indicators import atr, rsi, sma, bollinger_bands, support_resistance, macd, stoch_rsi, volume_ratio, swing_points, atr_average, ema
 from packages.strategy_core.ml_model import extract_features, train_signal_quality_model
+from packages.strategy_core.advanced_filters import detect_divergence, candlestick_boost
 
 
 class StrategyStyle(str, Enum):
@@ -152,7 +153,70 @@ def apply_ml_score(signal: Signal, candles: list[Candle], symbol: str, timeframe
             strategy_style=None,
         )
 
+    confluence_count, confluence_reasons = calculate_confluence(candles, signal.side)
+    min_conf = min_confluence_required()
+    if confluence_count < min_conf:
+        return Signal(
+            symbol=signal.symbol,
+            timeframe=signal.timeframe,
+            side='NO_TRADE',
+            confidence=0.0,
+            entry=None,
+            stop_loss=None,
+            take_profit=[],
+            reason=signal_reasons(
+                signal.reason + [f'confluencia insuficiente ({confluence_count}/{min_conf})'],
+                model.trained,
+                side_score,
+            ),
+            ml_score=side_score,
+            ml_trained=model.trained,
+            strategy_style=None,
+        )
+
+    swing_stop = swing_based_stop(candles, signal.side, atr(candles, 14) or 0.001)
+    if swing_stop is not None and signal.stop_loss is not None:
+        if signal.side == 'BUY' and swing_stop > signal.stop_loss:
+            signal = Signal(
+                symbol=signal.symbol,
+                timeframe=signal.timeframe,
+                side=signal.side,
+                confidence=signal.confidence,
+                entry=signal.entry,
+                stop_loss=swing_stop,
+                take_profit=signal.take_profit,
+                reason=signal.reason + ['stop ajustado para swing point'],
+                ml_score=signal.ml_score,
+                ml_trained=signal.ml_trained,
+                strategy_style=signal.strategy_style,
+            )
+        elif signal.side == 'SELL' and swing_stop < signal.stop_loss:
+            signal = Signal(
+                symbol=signal.symbol,
+                timeframe=signal.timeframe,
+                side=signal.side,
+                confidence=signal.confidence,
+                entry=signal.entry,
+                stop_loss=swing_stop,
+                take_profit=signal.take_profit,
+                reason=signal.reason + ['stop ajustado para swing point'],
+                ml_score=signal.ml_score,
+                ml_trained=signal.ml_trained,
+                strategy_style=signal.strategy_style,
+            )
+
     confidence = calibrated_confidence(signal.confidence, side_score, model.trained)
+
+    has_divergence, divergence_reason = detect_divergence(candles, signal.side)
+    if has_divergence:
+        confidence = min(confidence + 0.05, 0.92)
+        confluence_reasons.append(divergence_reason)
+
+    candle_boost, candle_descriptions = candlestick_boost(candles, signal.side)
+    if candle_boost > 0:
+        confidence = min(confidence + candle_boost, 0.92)
+        confluence_reasons.extend(candle_descriptions)
+
     return Signal(
         symbol=signal.symbol,
         timeframe=signal.timeframe,
@@ -161,7 +225,7 @@ def apply_ml_score(signal: Signal, candles: list[Candle], symbol: str, timeframe
         entry=signal.entry,
         stop_loss=signal.stop_loss,
         take_profit=signal.take_profit,
-        reason=signal_reasons(signal.reason, model.trained, side_score),
+        reason=signal_reasons(signal.reason + confluence_reasons, model.trained, side_score),
         ml_score=side_score,
         ml_trained=model.trained,
         strategy_style=signal.strategy_style,
@@ -277,8 +341,10 @@ def detect_trend_hunter(
 
     if fast > slow and last.close >= fast and recent_move >= -volatility * 0.25 and 40 <= momentum <= 78:
         momentum_score = max(0.0, 1 - abs(momentum - 58) / 24)
+        session_score = session_alignment_score()
+        mtf_score = mtf_alignment_score('BUY', [])
         confidence = quality_confidence(
-            trend_strength, body_strength, direction_strength, momentum_score, pullback_score, chase_penalty
+            trend_strength, body_strength, direction_strength, momentum_score, pullback_score, chase_penalty, session_score, mtf_score
         )
         confidence = min(confidence + 0.05, 0.90)
         stop = round(min(last.close - volatility * 1.3, recent_low - volatility * 0.15), 5)
@@ -299,8 +365,10 @@ def detect_trend_hunter(
 
     if fast < slow and last.close <= fast and recent_move <= volatility * 0.25 and 22 <= momentum <= 60:
         momentum_score = max(0.0, 1 - abs(momentum - 42) / 24)
+        session_score = session_alignment_score()
+        mtf_score = mtf_alignment_score('SELL', [])
         confidence = quality_confidence(
-            trend_strength, body_strength, direction_strength, momentum_score, pullback_score, chase_penalty
+            trend_strength, body_strength, direction_strength, momentum_score, pullback_score, chase_penalty, session_score, mtf_score
         )
         confidence = min(confidence + 0.05, 0.90)
         stop = round(max(last.close + volatility * 1.3, recent_high + volatility * 0.15), 5)
@@ -610,6 +678,8 @@ def quality_confidence(
     momentum_score: float,
     pullback_score: float,
     chase_penalty: float,
+    session_score: float = 0.0,
+    mtf_score: float = 0.0,
 ) -> float:
     score = (
         0.48
@@ -619,6 +689,8 @@ def quality_confidence(
         + momentum_score * 0.1
         + pullback_score * 0.12
         - chase_penalty
+        + session_score
+        + mtf_score
     )
     return round(min(max(score, 0.0), 0.88), 2)
 
@@ -627,3 +699,211 @@ def signal_reasons(reasons: list[str], trained: bool, score: float) -> list[str]
     if not trained:
         return reasons + ['IA aguardando mais dados para treino']
     return reasons + ['score ML ' + str(round(score * 100)) + '%']
+
+
+def calculate_confluence(candles: list[Candle], side: str) -> tuple[int, list[str]]:
+    confluence_count = 0
+    reasons = []
+    closes = [c.close for c in candles]
+    macd_val = macd(closes)
+    if macd_val is not None:
+        macd_line, signal_line, histogram = macd_val
+        if side == 'BUY' and macd_line > signal_line and histogram > 0:
+            confluence_count += 1
+            reasons.append('MACD bullish')
+        elif side == 'SELL' and macd_line < signal_line and histogram < 0:
+            confluence_count += 1
+            reasons.append('MACD bearish')
+    stoch_rsi_val = stoch_rsi(closes)
+    if stoch_rsi_val is not None:
+        k, d = stoch_rsi_val
+        if side == 'BUY' and k > d and k < 80:
+            confluence_count += 1
+            reasons.append('StochRSI bullish')
+        elif side == 'SELL' and k < d and k > 20:
+            confluence_count += 1
+            reasons.append('StochRSI bearish')
+    vol_ratio = volume_ratio(candles)
+    if vol_ratio is not None and vol_ratio > 1.2:
+        confluence_count += 1
+        reasons.append('volume acima da media')
+    fast_sma = sma(closes, 5)
+    slow_sma = sma(closes, 20)
+    if fast_sma is not None and slow_sma is not None:
+        if side == 'BUY' and fast_sma > slow_sma:
+            confluence_count += 1
+            reasons.append('SMA 5 > SMA 20')
+        elif side == 'SELL' and fast_sma < slow_sma:
+            confluence_count += 1
+            reasons.append('SMA 5 < SMA 20')
+    return confluence_count, reasons
+
+
+def min_confluence_required() -> int:
+    raw = os.getenv('SIGNAL_MIN_CONFLUENCE', '2')
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 2
+
+
+def swing_based_stop(candles: list[Candle], side: str, volatility: float) -> float | None:
+    swing_high, swing_low, prev_high, prev_low = swing_points(candles, 5)
+    if swing_high == 0 and swing_low == 0:
+        return None
+    if side == 'BUY':
+        base_stop = swing_low if swing_low > 0 else prev_low
+        if base_stop == 0:
+            return None
+        return round(min(base_stop - volatility * 0.15, candles[-1].close - volatility * 1.0), 5)
+    elif side == 'SELL':
+        base_stop = swing_high if swing_high > 0 else prev_high
+        if base_stop == 0:
+            return None
+        return round(max(base_stop + volatility * 0.15, candles[-1].close + volatility * 1.0), 5)
+    return None
+
+
+def adaptive_atr_multiple(candles: list[Candle], period: int = 14, lookback: int = 50) -> float:
+    current_atr = atr(candles, period)
+    avg_atr = atr_average(candles, period, lookback)
+    if current_atr is None or avg_atr is None or avg_atr == 0:
+        return max_stop_atr_multiple()
+    ratio = current_atr / avg_atr
+    if ratio > 1.5:
+        return 2.0
+    elif ratio < 0.7:
+        return 3.2
+    return 2.6
+
+
+def session_alignment_score() -> float:
+    from datetime import datetime, timezone
+    hour = datetime.now(timezone.utc).hour
+    if 7 <= hour < 16:
+        return 0.05
+    elif 13 <= hour < 21:
+        return 0.05
+    elif 0 <= hour < 3:
+        return 0.03
+    return 0.0
+
+
+def mtf_alignment_score(signal_side: str, reasons: list[str]) -> float:
+    confirm_count = sum(1 for r in reasons if f'confirma {signal_side.upper()}' in r.upper())
+    if confirm_count >= 2:
+        return 0.06
+    elif confirm_count == 1:
+        return 0.03
+    return 0.0
+
+
+def momentum_confirmation(candles: list[Candle], side: str) -> bool:
+    if len(candles) < 5:
+        return False
+    closes = [c.close for c in candles[-5:]]
+    if side == 'BUY':
+        return all(closes[i] <= closes[i + 1] for i in range(len(closes) - 1))
+    elif side == 'SELL':
+        return all(closes[i] >= closes[i + 1] for i in range(len(closes) - 1))
+    return False
+
+
+def time_based_filter() -> tuple[bool, str]:
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    hour = now.hour
+    weekday = now.weekday()
+    if weekday == 4 and hour >= 20:
+        return False, "sexta fechamento - evitar novas entradas"
+    if weekday == 6 and hour < 18:
+        return False, "domingo mercado fechado"
+    if 7 <= hour < 13:
+        return True, "sessao Londres ativa"
+    elif 13 <= hour < 21:
+        return True, "sessao Nova York ativa"
+    elif 0 <= hour < 3:
+        return True, "sessao Asia ativa"
+    return True, "sessao disponivel"
+
+
+def trailing_stop_suggestion(entry: float, current_price: float, stop_loss: float, side: str) -> float | None:
+    if side == 'BUY':
+        if current_price > entry + (entry - stop_loss) * 0.5:
+            new_stop = entry + (current_price - entry) * 0.3
+            if new_stop > stop_loss:
+                return round(new_stop, 5)
+    elif side == 'SELL':
+        if current_price < entry - (stop_loss - entry) * 0.5:
+            new_stop = entry - (entry - current_price) * 0.3
+            if new_stop < stop_loss:
+                return round(new_stop, 5)
+    return None
+
+
+def volume_confirmation(candles: list[Candle], side: str) -> bool:
+    if len(candles) < 5:
+        return False
+    volumes = [c.volume for c in candles[-5:] if hasattr(c, 'volume') and c.volume > 0]
+    if len(volumes) < 3:
+        return False
+    avg_vol = sum(volumes) / len(volumes)
+    last_vol = volumes[-1]
+    return last_vol > avg_vol * 1.3
+
+
+def price_action_quality(candles: list[Candle]) -> float:
+    if len(candles) < 3:
+        return 0.0
+    score = 0.0
+    last = candles[-1]
+    body = abs(last.close - last.open)
+    total_range = max(last.high - last.low, 0.00001)
+    body_ratio = body / total_range
+    if body_ratio > 0.6:
+        score += 0.3
+    elif body_ratio > 0.4:
+        score += 0.2
+    if last.close > last.open:
+        upper_wick = last.high - last.close
+        lower_wick = last.open - last.low
+        if upper_wick < body * 0.3 and lower_wick < body * 0.3:
+            score += 0.2
+    prev = candles[-2]
+    if last.close > last.open and prev.close < prev.open:
+        score += 0.1
+    elif last.close < last.open and prev.close > prev.open:
+        score += 0.1
+    return min(score, 1.0)
+
+
+def market_regime_adjustment(candles: list[Candle]) -> dict[str, float]:
+    if len(candles) < 20:
+        return {'trend_adjustment': 0.0, 'range_adjustment': 0.0, 'volatility_adjustment': 0.0}
+    closes = [c.close for c in candles[-20:]]
+    fast = sma(closes, 5)
+    slow = sma(closes, 20)
+    volatility = atr(candles, 14)
+    if fast is None or slow is None or volatility is None:
+        return {'trend_adjustment': 0.0, 'range_adjustment': 0.0, 'volatility_adjustment': 0.0}
+    trend_strength = min(abs(fast - slow) / max(volatility, 0.00001), 1.0)
+    trend_adjustment = 0.0
+    range_adjustment = 0.0
+    volatility_adjustment = 0.0
+    if trend_strength > 0.3:
+        trend_adjustment = 0.05
+    elif trend_strength < 0.1:
+        range_adjustment = 0.03
+    current_atr = atr(candles, 14)
+    avg_atr = atr_average(candles, 14, 50)
+    if current_atr is not None and avg_atr is not None and avg_atr > 0:
+        vol_ratio = current_atr / avg_atr
+        if vol_ratio > 1.5:
+            volatility_adjustment = -0.03
+        elif vol_ratio < 0.7:
+            volatility_adjustment = 0.02
+    return {
+        'trend_adjustment': trend_adjustment,
+        'range_adjustment': range_adjustment,
+        'volatility_adjustment': volatility_adjustment,
+    }
