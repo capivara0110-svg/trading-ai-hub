@@ -740,11 +740,11 @@ def calculate_confluence(candles: list[Candle], side: str) -> tuple[int, list[st
 
 
 def min_confluence_required() -> int:
-    raw = os.getenv('SIGNAL_MIN_CONFLUENCE', '2')
+    raw = os.getenv('SIGNAL_MIN_CONFLUENCE', '1')
     try:
         return max(1, int(raw))
     except ValueError:
-        return 2
+        return 1
 
 
 def swing_based_stop(candles: list[Candle], side: str, volatility: float) -> float | None:

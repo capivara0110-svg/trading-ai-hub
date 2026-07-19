@@ -102,7 +102,7 @@ def pending_order_eligibility(signal: Signal, state_path: Path) -> tuple[bool, s
         if not bridge["online"]:
             return False, "ponte MT5 offline"
 
-    min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.80)
+    min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.75)
     if signal.confidence < min_confidence:
         return False, f"score abaixo do minimo ({round(min_confidence * 100)}%)"
     news_blocked, news_reason = news_block_active()
