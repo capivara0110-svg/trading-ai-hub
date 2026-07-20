@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from packages.strategy_core.backtest import BacktestCosts, run_backtest
+from packages.strategy_core.strategy_v2 import detect_signal_v2, is_trading_allowed
 from packages.strategy_core.alpha_vantage import alpha_vantage_status
 from packages.strategy_core.alpha_vantage import fetch_fx_intraday
 from packages.strategy_core.data import load_candles
@@ -574,6 +575,13 @@ def backtest_costs(raw_query: str) -> BacktestCosts:
 def latest_signal() -> object:
     dataset = DATASETS.active_dataset()
     candles = load_candles(DATASETS.active_path())
+    use_v2 = os.getenv("USE_STRATEGY_V2", "true").lower() == "true"
+    if use_v2:
+        return detect_signal_v2(
+            candles,
+            symbol=dataset.symbol if dataset else "EURUSD",
+            timeframe=dataset.timeframe if dataset else "M5",
+        )
     return detect_forex_signal(
         candles,
         symbol=dataset.symbol if dataset else "EURUSD",
@@ -584,13 +592,22 @@ def latest_signal() -> object:
 def check_and_send_latest_alert() -> dict[str, object]:
     dataset = DATASETS.active_dataset()
     candles = load_candles(DATASETS.active_path())
-    signal = detect_forex_signal(
-        candles,
-        symbol=dataset.symbol if dataset else "EURUSD",
-        timeframe=dataset.timeframe if dataset else "M5",
-    )
-    signal = apply_stored_mtf_confirmation(signal)
-    signal = apply_session_adjustment(signal)
+
+    use_v2 = os.getenv("USE_STRATEGY_V2", "true").lower() == "true"
+    if use_v2:
+        signal = detect_signal_v2(
+            candles,
+            symbol=dataset.symbol if dataset else "EURUSD",
+            timeframe=dataset.timeframe if dataset else "M5",
+        )
+    else:
+        signal = detect_forex_signal(
+            candles,
+            symbol=dataset.symbol if dataset else "EURUSD",
+            timeframe=dataset.timeframe if dataset else "M5",
+        )
+        signal = apply_stored_mtf_confirmation(signal)
+        signal = apply_session_adjustment(signal)
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
     execution = create_execution_for_signal(signal, candles[-1].time if candles else None)
     decision = record_decision(
