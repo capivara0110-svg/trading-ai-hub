@@ -102,7 +102,7 @@ def pending_order_eligibility(signal: Signal, state_path: Path) -> tuple[bool, s
         if not bridge["online"]:
             return False, "ponte MT5 offline"
 
-    min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.75)
+    min_confidence = env_float("AUTO_TRADE_MIN_CONFIDENCE", 0.80)
     if signal.confidence < min_confidence:
         return False, f"score abaixo do minimo ({round(min_confidence * 100)}%)"
     news_blocked, news_reason = news_block_active()
@@ -196,6 +196,24 @@ def execution_quality_gate(signal: Signal) -> tuple[bool, str]:
                 return False, f"confluencia minima nao atingida ({confluence_count}/{min_conf})"
         except Exception:
             pass
+
+    now = datetime.now(timezone.utc)
+    if env_bool("AUTO_TRADE_BLOCK_SUNDAY_OPEN", True):
+        if now.weekday() == 6 and now.hour < 3:
+            return False, "domingo apos abertura - mercado instavel"
+        if now.weekday() == 6 and now.hour >= 21:
+            return False, "domingo noite - mercado prestes a fechar"
+
+    if env_bool("AUTO_TRADE_BLOCK_LOW_LIQUIDITY", True):
+        hour = now.hour
+        if 0 <= hour < 3:
+            return False, "horario de baixa liquidez (Asia madrugada)"
+        if 21 <= hour < 24:
+            return False, "horario de baixa liquidez (fim do dia)"
+
+    if env_bool("AUTO_TRADE_BLOCK_SUNDAY_OPENING", True):
+        if now.weekday() == 6:
+            return False, "domingo - mercado nao operacional"
 
     return True, "qualidade aprovada"
 
