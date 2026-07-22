@@ -18,14 +18,17 @@ def detect_macro_vwap_signal(
     from packages.strategy_core.signals import Signal, StrategyStyle
 
     if timeframe.upper() != "M5":
-        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["MACRO_VWAP exige timeframe M5"])
+        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["MACRO_VWAP exige timeframe M5"],
+                      strategy_style=StrategyStyle.MACRO_VWAP.value)
     if len(candles) < 23:
-        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["dados insuficientes para MACRO_VWAP"])
+        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["dados insuficientes para MACRO_VWAP"],
+                      strategy_style=StrategyStyle.MACRO_VWAP.value)
 
     closes = [candle.close for candle in candles[-80:]]
     ema = ema_series(closes, 9)
     if len(ema) < 2:
-        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["dados insuficientes para EMA 9"])
+        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["dados insuficientes para EMA 9"],
+                      strategy_style=StrategyStyle.MACRO_VWAP.value)
     sma_current = sum(closes[-21:]) / 21
     sma_previous = sum(closes[-22:-1]) / 21
     current_ema, previous_ema = ema[-1], ema[-2]
@@ -36,11 +39,13 @@ def detect_macro_vwap_signal(
     last_two_volumes = [max(candle.volume, 0.0) for candle in candles[-2:]]
     volume_confirmed = average_volume > 0 and all(volume > average_volume for volume in last_two_volumes)
     if not volume_confirmed:
-        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["volume dos dois candles abaixo da media de 20"])
+        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["volume dos dois candles abaixo da media de 20"],
+                      strategy_style=StrategyStyle.MACRO_VWAP.value)
 
     vwap = anchored_session_vwap(candles)
     if vwap is None:
-        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["VWAP de sessao indisponivel"])
+        return Signal(symbol, timeframe, "NO_TRADE", 0.0, None, None, [], ["VWAP de sessao indisponivel"],
+                      strategy_style=StrategyStyle.MACRO_VWAP.value)
 
     normalized_bias = normalize_bias(bias)
     last = candles[-1]
