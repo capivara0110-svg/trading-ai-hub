@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from packages.strategy_core.data import Candle
@@ -42,6 +43,7 @@ class BacktestResult:
     payoff: float
     profit_factor: float
     total_cost_pips: float = 0.0
+    strategy: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -55,6 +57,7 @@ class BacktestResult:
             "profitFactor": round(self.profit_factor, 2),
             "totalTrades": len(self.trades),
             "totalCostPips": round(self.total_cost_pips, 1),
+            "strategy": self.strategy,
         }
 
 
@@ -83,13 +86,28 @@ def run_backtest(
     min_confidence: float = 0.58,
     costs: BacktestCosts | None = None,
     symbol: str = "EURUSD",
+    strategy: str | None = None,
+    daily_bias: str | None = None,
 ) -> BacktestResult:
     trades: list[Trade] = []
     costs = costs or BacktestCosts()
+    selected_strategy = (strategy or os.getenv("FOREX_STRATEGY", "MACRO_VWAP")).strip().upper()
+    if selected_strategy == "MACRO_VWAP":
+        # A estrategia nao possui saida temporal; usa horizonte amplo apenas para
+        # encerrar a simulacao de forma finita quando SL/TP/reversao nao ocorrerem.
+        lookahead = max(lookahead, int(os.getenv("MACRO_VWAP_BACKTEST_MAX_HOLD_CANDLES", "288")))
+    next_available = 20
 
     for index in range(20, len(candles) - lookahead):
-        window = candles[: index + 1]
-        signal = detect_forex_signal(window, lookback=1)
+        if selected_strategy == "MACRO_VWAP" and index < next_available:
+            continue
+        # MACRO_VWAP precisa somente do historico recente e da sessao corrente.
+        # Limitar a janela evita copias O(n²) em datasets M5 extensos.
+        window_start = max(0, index - 999) if selected_strategy == "MACRO_VWAP" else 0
+        window = candles[window_start : index + 1]
+        signal = detect_forex_signal(
+            window, symbol=symbol, lookback=1, strategy=strategy, daily_bias=daily_bias
+        )
 
         if signal.side == "NO_TRADE" or signal.confidence < min_confidence:
             continue
@@ -99,22 +117,39 @@ def run_backtest(
         stop = float(signal.stop_loss or entry)
         target = float(signal.take_profit[0])
         exit_price = future[-1].close
+        exit_offset = len(future) - 1
+        active_stop = stop
+        breakeven_armed = False
+        half_target = entry + (target - entry) * 0.5
+        pip = 0.01 if "JPY" in symbol.upper() else 0.0001
 
-        for candle in future:
+        for offset, candle in enumerate(future):
             if signal.side == "BUY":
-                if candle.low <= stop:
-                    exit_price = stop
+                if candle.low <= active_stop:
+                    exit_price = active_stop
+                    exit_offset = offset
                     break
                 if candle.high >= target:
                     exit_price = target
+                    exit_offset = offset
                     break
+                if selected_strategy == "MACRO_VWAP" and not breakeven_armed and candle.high >= half_target:
+                    # Ativa para o candle seguinte: abordagem conservadora quando
+                    # maxima e minima do mesmo candle nao revelam a ordem intrabar.
+                    active_stop = max(active_stop, entry + costs.spread_pips * pip)
+                    breakeven_armed = True
             if signal.side == "SELL":
-                if candle.high >= stop:
-                    exit_price = stop
+                if candle.high >= active_stop:
+                    exit_price = active_stop
+                    exit_offset = offset
                     break
                 if candle.low <= target:
                     exit_price = target
+                    exit_offset = offset
                     break
+                if selected_strategy == "MACRO_VWAP" and not breakeven_armed and candle.low <= half_target:
+                    active_stop = min(active_stop, entry - costs.spread_pips * pip)
+                    breakeven_armed = True
 
         gross_result_pips = price_to_pips(exit_price - entry, symbol)
         if signal.side == "SELL":
@@ -130,8 +165,12 @@ def run_backtest(
                 result_pips=result_pips,
                 gross_result_pips=gross_result_pips,
                 cost_pips=costs.round_trip_pips,
+                exit_time=future[exit_offset].time,
+                exit_index=index + 1 + exit_offset,
             )
         )
+        if selected_strategy == "MACRO_VWAP":
+            next_available = index + 2 + exit_offset
 
     total = sum(trade.result_pips for trade in trades)
     wins = [trade for trade in trades if trade.result_pips > 0]
@@ -151,6 +190,7 @@ def run_backtest(
         payoff=average_win / average_loss if average_loss else 0,
         profit_factor=gross_profit / gross_loss if gross_loss else 0,
         total_cost_pips=sum(trade.cost_pips for trade in trades),
+        strategy=selected_strategy,
     )
 
 

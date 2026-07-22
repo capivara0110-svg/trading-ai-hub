@@ -125,6 +125,18 @@ function renderSignal(signal) {
     : formatPercent(signal.mlScore);
 }
 
+function renderStrategyStyle(signal) {
+  const names = {
+    MACRO_VWAP: "Macro VWAP",
+    TREND_HUNTER: "Cacador de Tendencia",
+    SCALPER: "Scalper Range",
+    REVERSAL_PRO: "Reversao Extrema",
+    BREAKOUT: "Rompimento",
+  };
+  const style = String(signal.strategyStyle || "MACRO_VWAP").toUpperCase();
+  document.querySelector("#signal-strategy").textContent = names[style] || style;
+}
+
 function renderMlStatus(model) {
   const status = model.trained
     ? `${model.samples} amostras | treino ${formatPercent(model.trainAccuracy)}`

@@ -63,7 +63,7 @@ DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 EURUSD_M5_FBS_DATASET = ROOT / "data" / "forex" / "eurusd_m5_fbs_real_12m.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.33.0"
+APP_VERSION = "0.34.0"
 RUNTIME_DATA_DIR = Path(os.getenv("RUNTIME_DATA_DIR", str(ROOT / "data" / "uploads"))).expanduser()
 DATASETS = DatasetStore(
     ROOT,
@@ -98,6 +98,7 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     "project": "trading-ai-hub",
                     "version": APP_VERSION,
                     "dataset": DATASETS.active_path().name,
+                    "strategy": os.getenv("FOREX_STRATEGY", "MACRO_VWAP").strip().upper(),
                 }
             )
             return
@@ -105,6 +106,22 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         if parsed.path == "/datasets":
             active_id = DATASETS.active_id() or "sample-eurusd-m5"
             self.send_json({"datasets": [dataset.to_dict(active_id) for dataset in DATASETS.list()]})
+            return
+
+        if parsed.path == "/strategy/status":
+            self.send_json(
+                {
+                    "strategy": os.getenv("FOREX_STRATEGY", "MACRO_VWAP").strip().upper(),
+                    "dailyBias": os.getenv("MACRO_VWAP_DAILY_BIAS", "NEUTRO").strip().upper(),
+                    "session": os.getenv("MACRO_VWAP_SESSION", "LONDON").strip().upper(),
+                    "sessionTimezone": os.getenv("MACRO_VWAP_SESSION_TIMEZONE", "Europe/London"),
+                    "sessionHour": int(os.getenv("MACRO_VWAP_SESSION_HOUR", "8")),
+                    "sessionMinute": int(os.getenv("MACRO_VWAP_SESSION_MINUTE", "0")),
+                    "stopPips": float(os.getenv("MACRO_VWAP_STOP_PIPS", "12")),
+                    "targetPips": float(os.getenv("MACRO_VWAP_TARGET_PIPS", "24")),
+                    "mode": os.getenv("AUTO_TRADE_MODE", "DEMO_ONLY"),
+                }
+            )
             return
 
         if parsed.path == "/signals/latest":
@@ -122,7 +139,14 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         if parsed.path == "/backtest":
             candles = load_candles(DATASETS.active_path())
             dataset = DATASETS.active_dataset()
-            self.send_json(run_backtest(candles, costs=backtest_costs(parsed.query), symbol=dataset.symbol if dataset else "EURUSD").to_dict())
+            query = parse_qs(parsed.query)
+            self.send_json(run_backtest(
+                candles,
+                costs=backtest_costs(parsed.query),
+                symbol=dataset.symbol if dataset else "EURUSD",
+                strategy=(query.get("strategy") or [None])[0],
+                daily_bias=(query.get("dailyBias") or [None])[0],
+            ).to_dict())
             return
 
         if parsed.path == "/ml/status":

@@ -11,6 +11,7 @@ from packages.strategy_core.advanced_filters import detect_divergence, candlesti
 
 
 class StrategyStyle(str, Enum):
+    MACRO_VWAP = 'MACRO_VWAP'
     TREND_HUNTER = 'TREND_HUNTER'
     SCALPER = 'SCALPER'
     REVERSAL_PRO = 'REVERSAL_PRO'
@@ -18,6 +19,7 @@ class StrategyStyle(str, Enum):
 
     def display_name(self) -> str:
         names = {
+            'MACRO_VWAP': 'Macro VWAP',
             'TREND_HUNTER': 'Cacador de Tendencia',
             'SCALPER': 'Scalper Range',
             'REVERSAL_PRO': 'Reversao Extrema',
@@ -27,6 +29,7 @@ class StrategyStyle(str, Enum):
 
     def emoji(self) -> str:
         emojis = {
+            'MACRO_VWAP': '~M',
             'TREND_HUNTER': '~$',
             'SCALPER': '~%',
             'REVERSAL_PRO': '~&',
@@ -85,7 +88,30 @@ def detect_forex_signal(
     symbol: str = 'EURUSD',
     timeframe: str = 'M5',
     lookback: int | None = None,
+    strategy: str | None = None,
+    daily_bias: str | None = None,
 ) -> Signal:
+    selected_strategy = (strategy or os.getenv('FOREX_STRATEGY', 'MACRO_VWAP')).strip().upper()
+    if selected_strategy == StrategyStyle.MACRO_VWAP.value:
+        from packages.strategy_core.macro_vwap import detect_macro_vwap_signal
+
+        max_lookback = max(1, min(int(lookback or os.getenv('SIGNAL_LOOKBACK_CANDLES', '4')), len(candles)))
+        for offset in range(max_lookback):
+            window = candles if offset == 0 else candles[:-offset]
+            candidate = detect_macro_vwap_signal(window, symbol, timeframe, daily_bias)
+            if candidate.side == 'NO_TRADE':
+                continue
+            if offset > 0:
+                return Signal(
+                    candidate.symbol, candidate.timeframe, candidate.side,
+                    max(candidate.confidence - (offset * 0.03), 0.0), candidate.entry,
+                    candidate.stop_loss, candidate.take_profit,
+                    candidate.reason + ['setup detectado ha ' + str(offset) + ' candle(s)'],
+                    strategy_style=candidate.strategy_style,
+                )
+            return candidate
+        return detect_macro_vwap_signal(candles, symbol, timeframe, daily_bias)
+
     max_lookback = max(1, min(int(lookback or os.getenv('SIGNAL_LOOKBACK_CANDLES', '4')), len(candles)))
     signal = detect_best_strategy(candles, symbol, timeframe)
     if signal.side == 'NO_TRADE' and 'dados insuficientes' in signal.reason:

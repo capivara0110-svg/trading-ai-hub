@@ -15,6 +15,7 @@ from packages.strategy_core.execution import execution_cooldown_ok, safe_daily_o
 from packages.strategy_core.validation import simulate_trade
 from packages.strategy_core.walk_forward import run_walk_forward_validation
 from packages.strategy_core.ml_model import frozen_training_candles
+from packages.strategy_core.macro_vwap import detect_macro_vwap_signal
 from packages.strategy_core.validation import SimulationPolicy, higher_timeframe_directions, policy_block_reason
 
 
@@ -89,6 +90,26 @@ class FrozenModelTests(unittest.TestCase):
         self.assertEqual(len(frozen), 30)
 
 
+class MacroVwapTests(unittest.TestCase):
+    def test_buy_requires_cross_vwap_and_two_high_volume_candles(self) -> None:
+        candles = make_macro_buy_candles()
+        signal = detect_macro_vwap_signal(candles, "EURUSD", "M5", "NEUTRO")
+        self.assertEqual(signal.side, "BUY")
+        self.assertEqual(signal.strategy_style, "MACRO_VWAP")
+        self.assertAlmostEqual(float(signal.stop_loss), float(signal.entry) - 0.0012, places=5)
+        self.assertAlmostEqual(float(signal.take_profit[0]), float(signal.entry) + 0.0024, places=5)
+
+    def test_seller_bias_blocks_buy(self) -> None:
+        signal = detect_macro_vwap_signal(make_macro_buy_candles(), "EURUSD", "M5", "VENDEDOR")
+        self.assertEqual(signal.side, "NO_TRADE")
+
+    def test_missing_second_volume_confirmation_blocks_entry(self) -> None:
+        candles = make_macro_buy_candles()
+        candles[-2] = Candle(**{**candles[-2].__dict__, "volume": 100})
+        signal = detect_macro_vwap_signal(candles, "EURUSD", "M5", "NEUTRO")
+        self.assertEqual(signal.side, "NO_TRADE")
+
+
 class DecisionLogTests(unittest.TestCase):
     def test_blocked_paper_signal_receives_hypothetical_result(self) -> None:
         candles = make_candles(30)
@@ -137,6 +158,23 @@ def make_candles(count: int) -> list[Candle]:
                 volume=100 + index,
             )
         )
+    return candles
+
+
+def make_macro_buy_candles() -> list[Candle]:
+    start = datetime(2026, 1, 5, 8, tzinfo=timezone.utc)
+    closes = [1.1000] * 24 + [1.0999, 1.09998, 1.1001]
+    candles: list[Candle] = []
+    for index, close in enumerate(closes):
+        open_price = closes[index - 1] if index else close
+        candles.append(Candle(
+            time=(start + timedelta(minutes=5 * index)).isoformat().replace("+00:00", "Z"),
+            open=open_price,
+            high=max(open_price, close) + 0.00005,
+            low=min(open_price, close) - 0.00005,
+            close=close,
+            volume=300 if index >= len(closes) - 2 else 100,
+        ))
     return candles
 
 
