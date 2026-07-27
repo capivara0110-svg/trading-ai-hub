@@ -109,6 +109,7 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     "project": "trading-ai-hub",
                     "version": APP_VERSION,
                     "dataset": DATASETS.active_path().name,
+                    "strategy": os.getenv("FOREX_STRATEGY", "MACRO_VWAP").strip().upper(),
                 }
             )
             return
@@ -116,6 +117,22 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         if parsed.path == "/datasets":
             active_id = DATASETS.active_id() or "sample-eurusd-m5"
             self.send_json({"datasets": [dataset.to_dict(active_id) for dataset in DATASETS.list()]})
+            return
+
+        if parsed.path == "/strategy/status":
+            self.send_json(
+                {
+                    "strategy": os.getenv("FOREX_STRATEGY", "MACRO_VWAP").strip().upper(),
+                    "dailyBias": os.getenv("MACRO_VWAP_DAILY_BIAS", "NEUTRO").strip().upper(),
+                    "session": os.getenv("MACRO_VWAP_SESSION", "LONDON").strip().upper(),
+                    "sessionTimezone": os.getenv("MACRO_VWAP_SESSION_TIMEZONE", "Europe/London"),
+                    "sessionHour": int(os.getenv("MACRO_VWAP_SESSION_HOUR", "8")),
+                    "sessionMinute": int(os.getenv("MACRO_VWAP_SESSION_MINUTE", "0")),
+                    "stopPips": float(os.getenv("MACRO_VWAP_STOP_PIPS", "12")),
+                    "targetPips": float(os.getenv("MACRO_VWAP_TARGET_PIPS", "24")),
+                    "mode": os.getenv("AUTO_TRADE_MODE", "DEMO_ONLY"),
+                }
+            )
             return
 
         if parsed.path == "/signals/latest":
@@ -140,10 +157,19 @@ class TradingApiHandler(BaseHTTPRequestHandler):
             dataset = DATASETS.active_dataset()
             symbol = dataset.symbol if dataset else "EURUSD"
             timeframe = dataset.timeframe if dataset else "M5"
-            if ENHANCED_MODE:
+            query = parse_qs(parsed.query)
+            requested_strategy = (query.get("strategy") or [None])[0]
+            daily_bias = (query.get("dailyBias") or [None])[0]
+            if ENHANCED_MODE and not requested_strategy:
                 self.send_json(run_backtest_enhanced(candles, costs=backtest_costs(parsed.query), symbol=symbol, timeframe=timeframe).to_dict())
             else:
-                self.send_json(run_backtest(candles, costs=backtest_costs(parsed.query), symbol=symbol, timeframe=timeframe).to_dict())
+                self.send_json(run_backtest(candles, costs=backtest_costs(parsed.query), symbol=symbol, timeframe=timeframe, strategy=requested_strategy or "default", daily_bias=daily_bias or "").to_dict())
+            return
+
+        if parsed.path == "/backtest/original":
+            candles = load_candles(DATASETS.active_path())
+            dataset = DATASETS.active_dataset()
+            self.send_json(run_backtest(candles, costs=backtest_costs(parsed.query), symbol=dataset.symbol if dataset else "EURUSD", timeframe=dataset.timeframe if dataset else "M5").to_dict())
             return
 
         if parsed.path == "/backtest/v2":

@@ -14,6 +14,14 @@ Criar uma plataforma que combine:
 - Painel web para acompanhar sinais, entradas, saídas e performance.
 - Ponte futura com MetaTrader 5, bots ou webhooks.
 
+## Estrategia Forex ativa
+
+O motor usa `MACRO_VWAP` como estrategia principal experimental: cruzamento
+EMA 9/SMA 21, VWAP ancorada na sessao, confirmacao de volume e vies diario. A
+estrategia anterior foi preservada como `LEGACY`. Consulte
+`docs/macro-vwap.md` para configuracao e estado da validacao. A nova estrategia
+continua restrita a pesquisa, paper trading e conta demo.
+
 ## Escopo Inicial
 
 O MVP deve responder quatro perguntas:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Callable
 
@@ -12,8 +13,8 @@ from packages.strategy_core.strategy_v2 import detect_signal_v2
 class Trade:
     entry_time: str
     side: str
-    entry: float
     exit: float
+    entry: float
     result_pips: float
     gross_result_pips: float = 0.0
     cost_pips: float = 0.0
@@ -86,8 +87,10 @@ def run_backtest(
     costs: BacktestCosts | None = None,
     symbol: str = "EURUSD",
     timeframe: str = "M5",
+    strategy: str = "default",
+    daily_bias: str = "",
 ) -> BacktestResult:
-    return _run_backtest(candles, lookahead, min_confidence, costs, symbol, timeframe, detect_forex_signal)
+    return _run_backtest(candles, lookahead, min_confidence, costs, symbol, timeframe, detect_forex_signal, strategy, daily_bias)
 
 
 def run_backtest_v2(
@@ -98,7 +101,7 @@ def run_backtest_v2(
     symbol: str = "EURUSD",
     timeframe: str = "M5",
 ) -> BacktestResult:
-    return _run_backtest(candles, lookahead, min_confidence, costs, symbol, timeframe, detect_signal_v2)
+    return _run_backtest(candles, lookahead, min_confidence, costs, symbol, timeframe, detect_signal_v2, "v2", "")
 
 
 def _run_backtest(
@@ -108,14 +111,23 @@ def _run_backtest(
     costs: BacktestCosts | None,
     symbol: str,
     timeframe: str,
-    strategy: Callable[..., Signal],
+    strategy_fn: Callable[..., Signal],
+    selected_strategy: str = "default",
+    daily_bias: str = "",
 ) -> BacktestResult:
     trades: list[Trade] = []
     costs = costs or BacktestCosts()
 
+    if selected_strategy == "MACRO_VWAP":
+        lookahead = max(lookahead, int(os.getenv("MACRO_VWAP_BACKTEST_MAX_HOLD_CANDLES", "288")))
+    next_available = 20
+
     for index in range(20, len(candles) - lookahead):
-        window = candles[: index + 1]
-        signal = strategy(window, symbol=symbol, timeframe=timeframe)
+        if selected_strategy == "MACRO_VWAP" and index < next_available:
+            continue
+        window_start = max(0, index - 999) if selected_strategy == "MACRO_VWAP" else 0
+        window = candles[window_start : index + 1]
+        signal = strategy_fn(window, symbol=symbol, timeframe=timeframe)
         if signal.side == "NO_TRADE" or signal.confidence < min_confidence:
             continue
 
