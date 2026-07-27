@@ -2,6 +2,8 @@ const statusEl = document.querySelector("#api-status");
 const apiBaseInput = document.querySelector("#api-base-input");
 const apiSaveButton = document.querySelector("#api-save-button");
 const apiConfigMessage = document.querySelector("#api-config-message");
+const FETCH_TIMEOUT_MS = 15000;
+
 const refreshButton = document.querySelector("#refresh-button");
 const importForm = document.querySelector("#import-form");
 const importMessage = document.querySelector("#import-message");
@@ -67,18 +69,11 @@ function apiUrl(path) {
 }
 
 async function getJson(path) {
-  const response = await fetch(apiUrl(path));
-  if (!response.ok) {
-    throw new Error(`Falha ao carregar ${path}`);
-  }
-  if (!String(response.headers.get("Content-Type") || "").includes("application/json")) {
-    throw new Error("A API retornou HTML. Configure a URL publica do Railway no campo API Railway.");
-  }
-  return response.json();
+  return safeGetJson(path);
 }
 
 async function postJson(path, payload) {
-  const response = await fetch(apiUrl(path), {
+  const response = await fetchWithTimeout(apiUrl(path), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -91,6 +86,39 @@ async function postJson(path, payload) {
     throw new Error(data.error || `Falha ao enviar ${path}`);
   }
   return data;
+}
+
+function fetchWithTimeout(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    fetch(url, { ...options, signal: controller.signal })
+      .then((response) => {
+        clearTimeout(timer);
+        resolve(response);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+async function safeGetJson(path) {
+  const response = await fetchWithTimeout(apiUrl(path));
+  if (!response.ok) throw new Error(`Falha ao carregar ${path}`);
+  if (!String(response.headers.get("Content-Type") || "").includes("application/json")) {
+    throw new Error("A API retornou HTML. Configure a URL publica do Railway no campo API Railway.");
+  }
+  return response.json();
+}
+
+function renderStrategyStyle(signal) {
+  const badge = document.querySelector("#signal-strategy");
+  if (!badge) return;
+  const style = signal.strategyStyle || "NONE";
+  badge.textContent = style === "NONE" || !style ? "---" : style.replace(/_/g, " ");
+  badge.className = `strategy-badge strategy-${String(style).toLowerCase()}`;
 }
 
 function saveApiBaseUrl() {
@@ -216,11 +244,11 @@ function renderSignalHistory(history) {
         : `${Number(signal.resultPips).toFixed(1)} pips`;
       return `
         <tr>
-          <td>${formatDateTime(signal.sentAt)}</td>
-          <td>${signal.side || "--"}</td>
-          <td>${formatNumber(signal.entry)}</td>
-          <td class="${statusClass}">${signal.status || "--"}</td>
-          <td>${result}</td>
+          <td>${safeText(formatDateTime(signal.sentAt))}</td>
+          <td>${safeText(signal.side)}</td>
+          <td>${safeText(formatNumber(signal.entry))}</td>
+          <td class="${statusClass}">${safeText(signal.status)}</td>
+          <td>${safeText(result)}</td>
         </tr>
       `;
     })
@@ -237,9 +265,9 @@ function renderDatasets(payload) {
 
   list.innerHTML = datasets
     .map((dataset) => `
-      <button class="dataset-button ${dataset.active ? "active" : ""}" data-id="${dataset.id}" type="button">
-        <span>${dataset.symbol} ${dataset.timeframe}</span>
-        <small>${dataset.candles} candles</small>
+      <button class="dataset-button ${dataset.active ? "active" : ""}" data-id="${safeText(dataset.id)}" type="button">
+        <span>${safeText(dataset.symbol)} ${safeText(dataset.timeframe)}</span>
+        <small>${safeText(String(dataset.candles))} candles</small>
       </button>
     `)
     .join("");
@@ -274,10 +302,10 @@ function renderBacktest(backtest) {
       const resultClass = Number(trade.resultPips) >= 0 ? "positive" : "negative";
       return `
         <tr>
-          <td>${trade.entryTime}</td>
-          <td>${trade.side}</td>
-          <td>${formatNumber(trade.entry)}</td>
-          <td>${formatNumber(trade.exit)}</td>
+          <td>${safeText(trade.entryTime)}</td>
+          <td>${safeText(trade.side)}</td>
+          <td>${safeText(formatNumber(trade.entry))}</td>
+          <td>${safeText(formatNumber(trade.exit))}</td>
           <td class="${resultClass}">${Number(trade.resultPips).toFixed(1)} pips</td>
         </tr>
       `;
@@ -287,39 +315,37 @@ function renderBacktest(backtest) {
 
 async function loadDashboard() {
   statusEl.textContent = "Atualizando";
-  try {
-    const [signal, backtest, datasets, model, validation, telegram, alpha, twelve, ai, market, job, history] = await Promise.all([
-      getJson("/signals/latest"),
-      getJson("/backtest"),
-      getJson("/datasets"),
-      getJson("/ml/status"),
-      getJson("/ml/validation"),
-      getJson("/alerts/telegram/status"),
-      getJson("/market/alpha-vantage/status"),
-      getJson("/market/twelve-data/status"),
-      getJson("/ai/status"),
-      getJson("/market/forex/status"),
-      getJson("/jobs/status"),
-      getJson("/signals/history"),
-    ]);
-    renderSignal(signal);
-    renderStrategyStyle(signal);
-    renderBacktest(backtest);
-    renderDatasets(datasets);
-    renderMlStatus(model);
-    renderValidation(validation);
-    renderTelegramStatus(telegram);
-    renderAlphaStatus(alpha);
-    renderTwelveStatus(twelve);
-    renderAiStatus(ai);
-    renderMarketStatus(market);
-    renderJobStatus(job);
-    renderSignalHistory(history);
-    statusEl.textContent = "Online";
-  } catch (error) {
-    statusEl.textContent = needsExternalApi() && !apiBaseUrl ? "Configurar API" : "Erro na API";
-    apiConfigMessage.textContent = error.message;
-    console.error(error);
+
+  const fetchIfOk = async (path, renderFn) => {
+    try {
+      const data = await safeGetJson(path);
+      renderFn(data);
+      return true;
+    } catch (error) {
+      console.warn(`Falha ao carregar ${path}:`, error.message);
+      return false;
+    }
+  };
+
+  const results = await Promise.allSettled([
+    fetchIfOk("/signals/latest", (data) => { renderSignal(data); renderStrategyStyle(data); }),
+    fetchIfOk("/backtest", renderBacktest),
+    fetchIfOk("/datasets", renderDatasets),
+    fetchIfOk("/ml/status", renderMlStatus),
+    fetchIfOk("/ml/validation", renderValidation),
+    fetchIfOk("/alerts/telegram/status", renderTelegramStatus),
+    fetchIfOk("/market/alpha-vantage/status", renderAlphaStatus),
+    fetchIfOk("/market/twelve-data/status", renderTwelveStatus),
+    fetchIfOk("/ai/status", renderAiStatus),
+    fetchIfOk("/market/forex/status", renderMarketStatus),
+    fetchIfOk("/jobs/status", renderJobStatus),
+    fetchIfOk("/signals/history", renderSignalHistory),
+  ]);
+
+  const failures = results.filter((r) => r.status === "fulfilled" && r.value === false).length;
+  statusEl.textContent = failures > 0 ? `Online (${failures} falha(s))` : "Online";
+  if (failures > 0) {
+    apiConfigMessage.textContent = `${failures} endpoint(s) indisponivel(is).`;
   }
 }
 
@@ -404,7 +430,17 @@ async function handleImport(event) {
   }
 }
 
-refreshButton.addEventListener("click", loadDashboard);
+function safeText(value) {
+  if (value === null || value === undefined) return "--";
+  return String(value).replace(/[&<>"']/g, "");
+}
+
+refreshButton.addEventListener("click", () => {
+  refreshButton.disabled = true;
+  loadDashboard().finally(() => {
+    setTimeout(() => { refreshButton.disabled = false; }, 1000);
+  });
+});
 apiSaveButton.addEventListener("click", saveApiBaseUrl);
 importForm.addEventListener("submit", handleImport);
 alphaForm.addEventListener("submit", handleAlphaRefresh);

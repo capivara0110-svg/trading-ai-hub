@@ -128,12 +128,21 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/signals/history`
 - `http://127.0.0.1:8765/signals/decisions`
 - `http://127.0.0.1:8765/backtest`
+- `http://127.0.0.1:8765/backtest/original`
+- `http://127.0.0.1:8765/backtest/v2`
+- `http://127.0.0.1:8765/backtest/compare`
 - `http://127.0.0.1:8765/ml/status`
+- `http://127.0.0.1:8765/ml/enhanced/status`
+- `http://127.0.0.1:8765/ml/enhanced/train`
 - `http://127.0.0.1:8765/ml/validation`
 - `http://127.0.0.1:8765/ml/walk-forward`
 - `http://127.0.0.1:8765/alerts/telegram/status`
 - `http://127.0.0.1:8765/ai/status`
 - `http://127.0.0.1:8765/jobs/status`
+- `http://127.0.0.1:8765/execution/status`
+- `http://127.0.0.1:8765/execution/pending`
+- `http://127.0.0.1:8765/performance/metrics`
+- `http://127.0.0.1:8765/profit-manager/status`
 - `http://127.0.0.1:8765/market/forex/status`
 - `http://127.0.0.1:8765/market/candles`
 
@@ -176,9 +185,16 @@ https://seu-app.up.railway.app
 
 Tambem da para abrir uma vez com `?api=https://seu-app.up.railway.app`; o painel salva essa URL no navegador.
 
-## Estado Atual
+## Estado Atual (v0.35.0)
 
-O primeiro protótipo está focado em Forex, usando EUR/USD M5 como amostra. Ele já tem uma primeira camada de machine learning leve para pontuar a qualidade do sinal, mas ainda precisa de histórico real amplo para ficar útil.
+O protótipo está focado em Forex, usando EUR/USD M5 como amostra. A versão 0.35.0 introduz a **V1 Enhanced** como estratégia padrão:
+
+- **V1 Enhanced**: trailing stop, take profit parcial (50% no TP1), stop por swing points, filtro de volatilidade, proteção de loss consecutivo, entradas momentum continuation
+- **Resultado em D1 (300 candles)**: +876 pips, profit factor 1.32, payoff 1.32, drawdown 42% menor
+- **Ambiente configurável**: `USE_ENHANCED_STRATEGY=true` (padrão), desative com `false` para voltar à V1 original
+- **Backtest original**: endpoint `/backtest/original` mantém a V1 clássica para comparação
+- **Backtest enhanced**: `/backtest` agora usa V1 Enhanced por padrão
+- **Compare completo**: `/backtest/compare` compara V1 original vs Enhanced vs V2
 
 Antes de vender acesso, o sistema ainda precisa de dados reais, backtest com custos/spread, auditoria de sinais e validação em conta demo.
 

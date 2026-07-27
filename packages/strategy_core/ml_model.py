@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import math
 import heapq
 import os
+import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
+from pathlib import Path
 
 from packages.strategy_core.data import Candle
 from packages.strategy_core.indicators import atr, rsi, sma
@@ -25,6 +28,10 @@ FEATURE_NAMES = [
 ]
 MODEL_VERSION = "knn-centroid-v2-bounded"
 DEFAULT_FREEZE_AT = "2026-07-13T23:59:59Z"
+CACHE_TTL_SECONDS = 60
+MODEL_CACHE_DIR = Path(os.getenv("ML_MODEL_CACHE_DIR", str(Path(__file__).resolve().parents[2] / "data" / "uploads" / "models")))
+
+_ml_cache: dict[str, tuple[float, MlModel]] = {}
 
 
 @dataclass(frozen=True)
@@ -73,6 +80,11 @@ class MlModel:
 
 
 def train_signal_quality_model(candles: list[Candle], respect_freeze: bool = True) -> MlModel:
+    cache_key = _cache_key(candles)
+    cached = _cached_model(cache_key)
+    if cached:
+        return cached
+
     if respect_freeze:
         candles = frozen_training_candles(candles)
     samples = build_training_samples(candles)
@@ -80,7 +92,9 @@ def train_signal_quality_model(candles: list[Candle], respect_freeze: bool = Tru
     negative = [sample.features for sample in samples if sample.label == 0]
 
     if len(positive) < 3 or len(negative) < 3:
-        return MlModel(False, len(samples), len(positive), len(negative), 0.0, [], [], [])
+        model = MlModel(False, len(samples), len(positive), len(negative), 0.0, [], [], [])
+        _set_cached(cache_key, model)
+        return model
 
     model = MlModel(
         trained=True,
@@ -92,7 +106,7 @@ def train_signal_quality_model(candles: list[Candle], respect_freeze: bool = Tru
         negative_centroid=centroid(negative),
         training_rows=representative_rows(samples),
     )
-    return MlModel(
+    model = MlModel(
         trained=True,
         samples=model.samples,
         positive_samples=model.positive_samples,
@@ -102,6 +116,8 @@ def train_signal_quality_model(candles: list[Candle], respect_freeze: bool = Tru
         negative_centroid=model.negative_centroid,
         training_rows=model.training_rows,
     )
+    _set_cached(cache_key, model)
+    return model
 
 
 def build_training_samples(candles: list[Candle], lookahead: int = 6) -> list[TrainingSample]:
@@ -270,3 +286,81 @@ def frozen_training_candles(candles: list[Candle]) -> list[Candle]:
 
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
+
+
+def _cache_key(candles: list[Candle]) -> str:
+    if not candles:
+        return "empty"
+    last_time = candles[-1].time
+    count = len(candles)
+    return f"ml-{last_time}-{count}"
+
+
+def _cached_model(key: str) -> MlModel | None:
+    cached = _ml_cache.get(key)
+    if cached is None:
+        return _load_persisted_model(key)
+    stored_at, model = cached
+    if time.time() - stored_at > CACHE_TTL_SECONDS:
+        del _ml_cache[key]
+        return None
+    return model
+
+
+def _set_cached(key: str, model: MlModel) -> None:
+    _ml_cache[key] = (time.time(), model)
+    _persist_model(key, model)
+    if len(_ml_cache) > 20:
+        oldest = min(_ml_cache.keys(), key=lambda k: _ml_cache[k][0])
+        del _ml_cache[oldest]
+
+
+def _persist_model(key: str, model: MlModel) -> None:
+    try:
+        MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = MODEL_CACHE_DIR / f"{key}.json"
+        path.write_text(json.dumps({
+            "key": key,
+            "trained": model.trained,
+            "samples": model.samples,
+            "positive_samples": model.positive_samples,
+            "negative_samples": model.negative_samples,
+            "train_accuracy": model.train_accuracy,
+            "positive_centroid": model.positive_centroid,
+            "negative_centroid": model.negative_centroid,
+            "training_rows_count": len(model.training_rows),
+            "training_rows": [
+                {"features": s.features, "label": s.label}
+                for s in model.training_rows
+            ],
+        }, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _load_persisted_model(key: str) -> MlModel | None:
+    try:
+        path = MODEL_CACHE_DIR / f"{key}.json"
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("key") != key:
+            return None
+        training_rows = [
+            TrainingSample(features=row["features"], label=row["label"])
+            for row in data.get("training_rows", [])
+        ]
+        model = MlModel(
+            trained=bool(data["trained"]),
+            samples=int(data["samples"]),
+            positive_samples=int(data["positive_samples"]),
+            negative_samples=int(data["negative_samples"]),
+            train_accuracy=float(data["train_accuracy"]),
+            positive_centroid=data["positive_centroid"],
+            negative_centroid=data["negative_centroid"],
+            training_rows=training_rows,
+        )
+        _ml_cache[key] = (time.time(), model)
+        return model
+    except (OSError, json.JSONDecodeError, KeyError, ValueError):
+        return None

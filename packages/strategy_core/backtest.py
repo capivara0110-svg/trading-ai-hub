@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 from packages.strategy_core.data import Candle
-from packages.strategy_core.signals import detect_forex_signal
+from packages.strategy_core.signals import detect_forex_signal, Signal
+from packages.strategy_core.strategy_v2 import detect_signal_v2
 
 
 @dataclass(frozen=True)
@@ -83,14 +85,37 @@ def run_backtest(
     min_confidence: float = 0.58,
     costs: BacktestCosts | None = None,
     symbol: str = "EURUSD",
+    timeframe: str = "M5",
+) -> BacktestResult:
+    return _run_backtest(candles, lookahead, min_confidence, costs, symbol, timeframe, detect_forex_signal)
+
+
+def run_backtest_v2(
+    candles: list[Candle],
+    lookahead: int = 24,
+    min_confidence: float = 0.60,
+    costs: BacktestCosts | None = None,
+    symbol: str = "EURUSD",
+    timeframe: str = "M5",
+) -> BacktestResult:
+    return _run_backtest(candles, lookahead, min_confidence, costs, symbol, timeframe, detect_signal_v2)
+
+
+def _run_backtest(
+    candles: list[Candle],
+    lookahead: int,
+    min_confidence: float,
+    costs: BacktestCosts | None,
+    symbol: str,
+    timeframe: str,
+    strategy: Callable[..., Signal],
 ) -> BacktestResult:
     trades: list[Trade] = []
     costs = costs or BacktestCosts()
 
     for index in range(20, len(candles) - lookahead):
         window = candles[: index + 1]
-        signal = detect_forex_signal(window, lookback=1)
-
+        signal = strategy(window, symbol=symbol, timeframe=timeframe)
         if signal.side == "NO_TRADE" or signal.confidence < min_confidence:
             continue
 

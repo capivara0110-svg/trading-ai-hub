@@ -15,7 +15,8 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from packages.strategy_core.backtest import BacktestCosts, run_backtest
+from packages.strategy_core.backtest import BacktestCosts, run_backtest, run_backtest_v2
+from packages.strategy_core.strategy_v1_enhanced import detect_forex_signal_enhanced, run_backtest_enhanced
 from packages.strategy_core.strategy_v2 import detect_signal_v2, is_trading_allowed
 from packages.strategy_core.alpha_vantage import alpha_vantage_status
 from packages.strategy_core.alpha_vantage import fetch_fx_intraday
@@ -36,6 +37,7 @@ from packages.strategy_core.execution import mark_order_result
 from packages.strategy_core.execution import pending_order_eligibility
 from packages.strategy_core.execution import pending_order
 from packages.strategy_core.ml_model import train_signal_quality_model
+from packages.strategy_core.ml_enhanced import EnhancedModel
 from packages.strategy_core.openai_ai import explain_signal
 from packages.strategy_core.openai_ai import openai_config_status
 from packages.strategy_core.openai_ai import should_add_ai_to_telegram
@@ -63,7 +65,14 @@ DEFAULT_DATASET = ROOT / "data" / "forex" / "eurusd_m5_sample.csv"
 EURUSD_D1_DATASET = ROOT / "data" / "forex" / "eurusd_d1_yahoo.csv"
 EURUSD_M5_FBS_DATASET = ROOT / "data" / "forex" / "eurusd_m5_fbs_real_12m.csv"
 WEB_ROOT = ROOT / "apps" / "web"
-APP_VERSION = "0.33.0"
+ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "").strip()
+CORS_ORIGIN = ALLOWED_ORIGIN if ALLOWED_ORIGIN else "*"
+APP_VERSION = "0.35.0"
+ENHANCED_MODE = os.getenv("USE_ENHANCED_STRATEGY", "true").lower() == "true"
+RATE_WINDOW_SECONDS = 10
+RATE_MAX_REQUESTS = 30
+_rate_buckets: dict[str, tuple[float, int]] = {}
+_enhanced_model_cache: dict[str, object] = {}
 RUNTIME_DATA_DIR = Path(os.getenv("RUNTIME_DATA_DIR", str(ROOT / "data" / "uploads"))).expanduser()
 DATASETS = DatasetStore(
     ROOT,
@@ -89,6 +98,8 @@ CONTENT_TYPES = {
 
 class TradingApiHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
+        if not self._check_rate_limit():
+            return
         parsed = urlparse(self.path)
 
         if parsed.path == "/health":
@@ -110,24 +121,84 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         if parsed.path == "/signals/latest":
             dataset = DATASETS.active_dataset()
             candles = load_candles(DATASETS.active_path())
+            symbol = dataset.symbol if dataset else "EURUSD"
+            timeframe = dataset.timeframe if dataset else "M5"
+            signal_fn = detect_forex_signal_enhanced if ENHANCED_MODE else detect_forex_signal
             self.send_json(
-                detect_forex_signal(
-                    candles,
-                    symbol=dataset.symbol if dataset else "EURUSD",
-                    timeframe=dataset.timeframe if dataset else "M5",
-                ).to_dict()
+                signal_fn(candles, symbol=symbol, timeframe=timeframe).to_dict()
             )
+            return
+
+        if parsed.path == "/backtest/original":
+            candles = load_candles(DATASETS.active_path())
+            dataset = DATASETS.active_dataset()
+            self.send_json(run_backtest(candles, costs=backtest_costs(parsed.query), symbol=dataset.symbol if dataset else "EURUSD", timeframe=dataset.timeframe if dataset else "M5").to_dict())
             return
 
         if parsed.path == "/backtest":
             candles = load_candles(DATASETS.active_path())
             dataset = DATASETS.active_dataset()
-            self.send_json(run_backtest(candles, costs=backtest_costs(parsed.query), symbol=dataset.symbol if dataset else "EURUSD").to_dict())
+            symbol = dataset.symbol if dataset else "EURUSD"
+            timeframe = dataset.timeframe if dataset else "M5"
+            if ENHANCED_MODE:
+                self.send_json(run_backtest_enhanced(candles, costs=backtest_costs(parsed.query), symbol=symbol, timeframe=timeframe).to_dict())
+            else:
+                self.send_json(run_backtest(candles, costs=backtest_costs(parsed.query), symbol=symbol, timeframe=timeframe).to_dict())
+            return
+
+        if parsed.path == "/backtest/v2":
+            candles = load_candles(DATASETS.active_path())
+            dataset = DATASETS.active_dataset()
+            self.send_json(run_backtest_v2(candles, costs=backtest_costs(parsed.query), symbol=dataset.symbol if dataset else "EURUSD", timeframe=dataset.timeframe if dataset else "M5").to_dict())
+            return
+
+        if parsed.path == "/backtest/compare":
+            candles = load_candles(DATASETS.active_path())
+            dataset = DATASETS.active_dataset()
+            symbol = dataset.symbol if dataset else "EURUSD"
+            timeframe = dataset.timeframe if dataset else "M5"
+            costs = backtest_costs(parsed.query)
+            v1 = run_backtest(candles, costs=costs, symbol=symbol, timeframe=timeframe)
+            enhanced = run_backtest_enhanced(candles, costs=costs, symbol=symbol, timeframe=timeframe)
+            v2 = run_backtest_v2(candles, costs=costs, symbol=symbol, timeframe=timeframe)
+            self.send_json({
+                "v1": v1.to_dict(),
+                "enhanced": enhanced.to_dict(),
+                "v2": v2.to_dict(),
+                "deltaEnhanced": {
+                    "totalPips": round(enhanced.total_pips - v1.total_pips, 1),
+                    "winRate": round(enhanced.win_rate - v1.win_rate, 2),
+                    "trades": enhanced.to_dict()["totalTrades"] - v1.to_dict()["totalTrades"],
+                    "payoff": round(enhanced.payoff - v1.payoff, 2),
+                    "drawdown": round(enhanced.max_drawdown_pips - v1.max_drawdown_pips, 1),
+                },
+            })
             return
 
         if parsed.path == "/ml/status":
             candles = load_candles(DATASETS.active_path())
             self.send_json(train_signal_quality_model(candles).to_dict())
+            return
+
+        if parsed.path == "/ml/enhanced/status":
+            cached = _enhanced_model_cache.get("status")
+            if cached:
+                self.send_json(cached)
+                return
+            candles = load_candles(DATASETS.active_path())
+            model = EnhancedModel().train(candles)
+            result = model.to_dict()
+            _enhanced_model_cache["status"] = result
+            _enhanced_model_cache["instance"] = model
+            self.send_json(result)
+            return
+
+        if parsed.path == "/ml/enhanced/train":
+            candles = load_candles(DATASETS.active_path())
+            model = EnhancedModel().train(candles)
+            _enhanced_model_cache["instance"] = model
+            _enhanced_model_cache["status"] = model.to_dict()
+            self.send_json(model.to_dict())
             return
 
         if parsed.path == "/ml/validation":
@@ -217,6 +288,8 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         self.send_json({"error": "route not found"}, status=404)
 
     def do_POST(self) -> None:
+        if not self._check_rate_limit():
+            return
         parsed = urlparse(self.path)
 
         try:
@@ -295,11 +368,10 @@ class TradingApiHandler(BaseHTTPRequestHandler):
             if parsed.path == "/alerts/telegram/latest-signal":
                 dataset = DATASETS.active_dataset()
                 candles = load_candles(DATASETS.active_path())
-                signal = detect_forex_signal(
-                    candles,
-                    symbol=dataset.symbol if dataset else "EURUSD",
-                    timeframe=dataset.timeframe if dataset else "M5",
-                )
+                symbol = dataset.symbol if dataset else "EURUSD"
+                timeframe = dataset.timeframe if dataset else "M5"
+                signal_fn = detect_forex_signal_enhanced if ENHANCED_MODE else detect_forex_signal
+                signal = signal_fn(candles, symbol=symbol, timeframe=timeframe)
                 ai_allowed, _ = pending_order_eligibility(signal, EXECUTION_STATE)
                 result = send_telegram_message(format_signal_message(signal, ai_note=optional_ai_note(signal, ai_allowed)))
                 history_item = (
@@ -450,7 +522,7 @@ class TradingApiHandler(BaseHTTPRequestHandler):
     def authorized_job(self, payload: dict[str, object]) -> bool:
         expected = os.getenv("ALERT_JOB_SECRET")
         if not expected:
-            raise ValueError("ALERT_JOB_SECRET nao configurado")
+            return False
         provided = self.headers.get("X-Job-Secret") or str(payload.get("secret") or "")
         return provided == expected
 
@@ -461,11 +533,28 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         provided = self.headers.get("X-Market-Secret") or str(payload.get("secret") or "")
         return provided == expected
 
+    def _check_rate_limit(self) -> bool:
+        client_ip = self.client_address[0]
+        now = time.time()
+        bucket = _rate_buckets.get(client_ip)
+        if bucket is None or now - bucket[0] > RATE_WINDOW_SECONDS:
+            _rate_buckets[client_ip] = (now, 1)
+            if len(_rate_buckets) > 500:
+                oldest = min(_rate_buckets.keys(), key=lambda k: _rate_buckets[k][0])
+                del _rate_buckets[oldest]
+            return True
+        window_start, count = bucket
+        if count >= RATE_MAX_REQUESTS:
+            self.send_json({"error": "muitas requisicoes. Aguarde alguns segundos."}, status=429)
+            return False
+        _rate_buckets[client_ip] = (window_start, count + 1)
+        return True
+
     def send_json(self, payload: dict[str, object], status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", CORS_ORIGIN)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -491,7 +580,7 @@ class TradingApiHandler(BaseHTTPRequestHandler):
         return True
 
     def end_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", CORS_ORIGIN)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "same-origin")
         super().end_headers()
@@ -575,39 +664,34 @@ def backtest_costs(raw_query: str) -> BacktestCosts:
 def latest_signal() -> object:
     dataset = DATASETS.active_dataset()
     candles = load_candles(DATASETS.active_path())
+    symbol = dataset.symbol if dataset else "EURUSD"
+    timeframe = dataset.timeframe if dataset else "M5"
+
+    if ENHANCED_MODE:
+        return detect_forex_signal_enhanced(candles, symbol=symbol, timeframe=timeframe)
+
     use_v2 = os.getenv("USE_STRATEGY_V2", "true").lower() == "true"
     if use_v2:
-        return detect_signal_v2(
-            candles,
-            symbol=dataset.symbol if dataset else "EURUSD",
-            timeframe=dataset.timeframe if dataset else "M5",
-        )
-    return detect_forex_signal(
-        candles,
-        symbol=dataset.symbol if dataset else "EURUSD",
-        timeframe=dataset.timeframe if dataset else "M5",
-    )
+        return detect_signal_v2(candles, symbol=symbol, timeframe=timeframe)
+    return detect_forex_signal(candles, symbol=symbol, timeframe=timeframe)
 
 
 def check_and_send_latest_alert() -> dict[str, object]:
     dataset = DATASETS.active_dataset()
     candles = load_candles(DATASETS.active_path())
+    symbol = dataset.symbol if dataset else "EURUSD"
+    timeframe = dataset.timeframe if dataset else "M5"
 
-    use_v2 = os.getenv("USE_STRATEGY_V2", "true").lower() == "true"
-    if use_v2:
-        signal = detect_signal_v2(
-            candles,
-            symbol=dataset.symbol if dataset else "EURUSD",
-            timeframe=dataset.timeframe if dataset else "M5",
-        )
+    if ENHANCED_MODE:
+        signal = detect_forex_signal_enhanced(candles, symbol=symbol, timeframe=timeframe)
     else:
-        signal = detect_forex_signal(
-            candles,
-            symbol=dataset.symbol if dataset else "EURUSD",
-            timeframe=dataset.timeframe if dataset else "M5",
-        )
-        signal = apply_stored_mtf_confirmation(signal)
-        signal = apply_session_adjustment(signal)
+        use_v2 = os.getenv("USE_STRATEGY_V2", "true").lower() == "true"
+        if use_v2:
+            signal = detect_signal_v2(candles, symbol=symbol, timeframe=timeframe)
+        else:
+            signal = detect_forex_signal(candles, symbol=symbol, timeframe=timeframe)
+            signal = apply_stored_mtf_confirmation(signal)
+            signal = apply_session_adjustment(signal)
     should_send, reason = should_send_signal(signal, TELEGRAM_ALERT_STATE)
     execution = create_execution_for_signal(signal, candles[-1].time if candles else None)
     decision = record_decision(

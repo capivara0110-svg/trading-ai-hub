@@ -60,9 +60,10 @@ def get_strategy_config() -> StrategyConfig:
 # DETECAO DE SESSAO
 # =============================================================================
 
-def get_current_session() -> str:
-    hour = datetime.now(timezone.utc).hour
-    weekday = datetime.now(timezone.utc).weekday()
+def get_current_session(candle_dt: datetime | None = None) -> str:
+    now = candle_dt if candle_dt is not None else datetime.now(timezone.utc)
+    hour = now.hour
+    weekday = now.weekday()
 
     if weekday == 6:
         return "domingo"
@@ -79,9 +80,9 @@ def get_current_session() -> str:
         return "entre_sessoes"
 
 
-def is_trading_allowed() -> tuple[bool, str]:
+def is_trading_allowed(candle_dt: datetime | None = None) -> tuple[bool, str]:
     config = get_strategy_config()
-    session = get_current_session()
+    session = get_current_session(candle_dt)
 
     if config.block_sunday and session == "domingo":
         return False, "domingo - mercado fechado"
@@ -93,6 +94,13 @@ def is_trading_allowed() -> tuple[bool, str]:
         return False, "asia madrugada - baixa liquidez"
 
     return True, f"sessao {session} ativa"
+
+
+def is_trading_allowed_for_timeframe(candle_dt: datetime | None, timeframe: str) -> tuple[bool, str]:
+    """Session guard only applies to intraday timeframes (M1-H1). D1+ always allowed."""
+    if timeframe in ("D1", "W1", "MN"):
+        return True, "timeframe diario+ - sessao ignorada"
+    return is_trading_allowed(candle_dt)
 
 
 # =============================================================================
@@ -302,8 +310,11 @@ def calculate_optimal_entry(candles: list[Candle], side: str) -> dict | None:
 def detect_signal_v2(candles: list[Candle], symbol: str = "EURUSD", timeframe: str = "M5") -> Signal:
     config = get_strategy_config()
 
-    # 1. Verificar se pode operar
-    allowed, session_reason = is_trading_allowed()
+    # 1. Extrair timestamp do ultimo candle para checagem de sessao
+    candle_dt = _parse_candle_time(candles[-1].time) if candles else None
+
+    # 2. Verificar se pode operar (D1+ ignora sessao)
+    allowed, session_reason = is_trading_allowed_for_timeframe(candle_dt, timeframe)
     if not allowed:
         return Signal(
             symbol=symbol, timeframe=timeframe, side="NO_TRADE",
@@ -377,7 +388,7 @@ def detect_signal_v2(candles: list[Candle], symbol: str = "EURUSD", timeframe: s
             f"R/R {entry_data['risk_reward']:.1f}",
             f"risco {entry_data['risk_pips']:.0f} pips",
             f"alvo {entry_data['reward_pips_1']:.0f} pips",
-            f"sessao {get_current_session()}",
+            f"sessao {get_current_session(candle_dt)}",
         ],
         strategy_style=strategy_style,
     )
@@ -435,3 +446,13 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _parse_candle_time(time_str: str) -> datetime | None:
+    if not time_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
