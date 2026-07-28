@@ -67,7 +67,7 @@ EURUSD_M5_FBS_DATASET = ROOT / "data" / "forex" / "eurusd_m5_fbs_real_12m.csv"
 WEB_ROOT = ROOT / "apps" / "web"
 ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "").strip()
 CORS_ORIGIN = ALLOWED_ORIGIN if ALLOWED_ORIGIN else "*"
-APP_VERSION = "0.35.0"
+APP_VERSION = "0.36.0"
 ENHANCED_MODE = os.getenv("USE_ENHANCED_STRATEGY", "true").lower() == "true"
 RATE_WINDOW_SECONDS = 10
 RATE_MAX_REQUESTS = 30
@@ -130,6 +130,17 @@ class TradingApiHandler(BaseHTTPRequestHandler):
                     "sessionMinute": int(os.getenv("MACRO_VWAP_SESSION_MINUTE", "0")),
                     "stopPips": float(os.getenv("MACRO_VWAP_STOP_PIPS", "12")),
                     "targetPips": float(os.getenv("MACRO_VWAP_TARGET_PIPS", "24")),
+                    "mode": os.getenv("AUTO_TRADE_MODE", "DEMO_ONLY"),
+                }
+            )
+            return
+
+        if parsed.path == "/watchlist/status":
+            self.send_json(
+                {
+                    "symbols": configured_watch_symbols(),
+                    "timeframe": os.getenv("WATCH_TIMEFRAME", "M5").strip().upper(),
+                    "strategy": os.getenv("FOREX_STRATEGY", "MACRO_VWAP").strip().upper(),
                     "mode": os.getenv("AUTO_TRADE_MODE", "DEMO_ONLY"),
                 }
             )
@@ -645,7 +656,7 @@ def auto_scan_loop() -> None:
     time.sleep(max(0, initial_delay))
     while True:
         try:
-            result = refresh_twelve_data_and_alert({})
+            result = refresh_watchlist_and_alert({})
             save_job_state("auto-scan", result)
             print(f"Auto scan result: {json.dumps(result, ensure_ascii=False)}", flush=True)
         except Exception as error:
@@ -784,9 +795,16 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
     outputsize = int(payload.get("outputsize") or os.getenv("WATCH_OUTPUTSIZE") or 120)
     candles = fetch_time_series(symbol, timeframe, outputsize)
     dataset = DATASETS.save_candles(symbol=symbol, timeframe=timeframe, candles=candles)
-    confirmation_datasets = refresh_confirmation_timeframes(symbol, timeframe)
-    performance = evaluate_history(SIGNAL_HISTORY, candles)
-    decision_performance = evaluate_decisions(DECISION_LOG, candles)
+    # M15/H1 consomem duas chamadas adicionais. Busca somente quando o M5
+    # apresenta um gatilho preliminar; a confirmacao ocorre antes do Telegram.
+    preliminary = detect_forex_signal(candles, symbol=symbol, timeframe=timeframe, lookback=1)
+    confirmation_datasets = (
+        refresh_confirmation_timeframes(symbol, timeframe)
+        if preliminary.side != "NO_TRADE"
+        else []
+    )
+    performance = evaluate_history(SIGNAL_HISTORY, candles, symbol=symbol)
+    decision_performance = evaluate_decisions(DECISION_LOG, candles, symbol=symbol)
     paper_notifications = notify_closed_paper_signals(performance)
     alert = check_and_send_latest_alert()
     market = forex_market_status(candles)
@@ -803,6 +821,44 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
         "decisionPerformance": decision_performance,
         "paperNotifications": paper_notifications,
         "confirmations": confirmation_datasets,
+    }
+
+
+def configured_watch_symbols(payload: dict[str, object] | None = None) -> list[str]:
+    explicit = re.sub(
+        r"[^A-Z0-9]", "", str((payload or {}).get("symbol") or "").strip().upper()
+    )
+    if explicit:
+        return [explicit]
+    raw = os.getenv("WATCH_SYMBOLS") or os.getenv("WATCH_SYMBOL") or "EURUSD"
+    symbols: list[str] = []
+    for item in raw.split(","):
+        symbol = re.sub(r"[^A-Z0-9]", "", item.strip().upper())
+        if symbol and symbol not in symbols:
+            symbols.append(symbol)
+    return symbols or ["EURUSD"]
+
+
+def refresh_watchlist_and_alert(payload: dict[str, object]) -> dict[str, object]:
+    symbols = configured_watch_symbols(payload)
+    scans: list[dict[str, object]] = []
+    errors: list[dict[str, str]] = []
+    for symbol in symbols:
+        try:
+            scans.append(refresh_twelve_data_and_alert({**payload, "symbol": symbol}))
+        except Exception as error:
+            errors.append({"symbol": symbol, "error": str(error)})
+
+    primary_id = f"{symbols[0].lower()}-{str(payload.get('timeframe') or os.getenv('WATCH_TIMEFRAME') or 'M5').lower()}"
+    primary = DATASETS.get(primary_id)
+    if primary:
+        DATASETS.set_active(primary.id)
+    return {
+        "skipped": bool(scans) and all(bool(scan.get("skipped")) for scan in scans),
+        "symbols": symbols,
+        "scans": scans,
+        "errors": errors,
+        "sentSignals": sum(1 for scan in scans if bool((scan.get("alert") or {}).get("sent"))),
     }
 
 
@@ -942,7 +998,10 @@ def current_signal_history() -> dict[str, object]:
     except ValueError:
         candles = []
     if candles:
-        return evaluate_history(SIGNAL_HISTORY, candles)
+        dataset = DATASETS.active_dataset()
+        return evaluate_history(
+            SIGNAL_HISTORY, candles, symbol=dataset.symbol if dataset else None
+        )
     return history_summary(load_history(SIGNAL_HISTORY))
 
 

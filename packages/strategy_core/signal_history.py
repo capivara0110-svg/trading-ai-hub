@@ -38,12 +38,16 @@ def record_signal(signal: Signal, history_path: Path, candle_time: str | None = 
     return item
 
 
-def evaluate_history(history_path: Path, candles: list[Candle]) -> dict[str, object]:
+def evaluate_history(
+    history_path: Path, candles: list[Candle], symbol: str | None = None
+) -> dict[str, object]:
     history = load_history(history_path)
     changed = False
     closed_now: list[dict[str, object]] = []
     for item in history:
         if item.get("status") != "OPEN":
+            continue
+        if symbol and str(item.get("symbol") or "").upper() != symbol.upper():
             continue
         result = evaluate_item(item, candles)
         if result:
@@ -102,28 +106,28 @@ def evaluate_item(item: dict[str, object], candles: list[Candle]) -> dict[str, o
             continue
         if side == "BUY":
             if candle.low <= stop_price:
-                return close_item("LOSS", candle.time, stop_price, stop_price - entry_price, side)
+                return close_item("LOSS", candle.time, stop_price, stop_price - entry_price, str(item.get("symbol") or ""))
             if candle.high >= target_price:
-                return close_item("WIN", candle.time, target_price, target_price - entry_price, side)
+                return close_item("WIN", candle.time, target_price, target_price - entry_price, str(item.get("symbol") or ""))
         if side == "SELL":
             if candle.high >= stop_price:
-                return close_item("LOSS", candle.time, stop_price, entry_price - stop_price, side)
+                return close_item("LOSS", candle.time, stop_price, entry_price - stop_price, str(item.get("symbol") or ""))
             if candle.low <= target_price:
-                return close_item("WIN", candle.time, target_price, entry_price - target_price, side)
+                return close_item("WIN", candle.time, target_price, entry_price - target_price, str(item.get("symbol") or ""))
     return None
 
 
-def close_item(status: str, closed_at: str, exit_price: float, raw_result: float, side: str) -> dict[str, object]:
+def close_item(status: str, closed_at: str, exit_price: float, raw_result: float, symbol: str) -> dict[str, object]:
     return {
         "status": status,
         "closedAt": closed_at,
         "exitPrice": round(exit_price, 5),
-        "resultPips": round(price_to_pips(raw_result, side), 1),
+        "resultPips": round(price_to_pips(raw_result, symbol), 1),
     }
 
 
-def price_to_pips(value: float, side: str) -> float:
-    multiplier = 100 if "JPY" in side else 10000
+def price_to_pips(value: float, symbol: str) -> float:
+    multiplier = 100 if "JPY" in symbol.upper() else 10000
     return value * multiplier
 
 

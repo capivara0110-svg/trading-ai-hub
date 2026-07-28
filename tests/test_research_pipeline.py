@@ -16,6 +16,7 @@ from packages.strategy_core.validation import simulate_trade
 from packages.strategy_core.walk_forward import run_walk_forward_validation
 from packages.strategy_core.ml_model import frozen_training_candles
 from packages.strategy_core.macro_vwap import detect_macro_vwap_signal
+from packages.strategy_core.signal_history import price_to_pips as history_price_to_pips
 from packages.strategy_core.validation import SimulationPolicy, higher_timeframe_directions, policy_block_reason
 
 
@@ -102,6 +103,9 @@ class MacroVwapTests(unittest.TestCase):
     def test_seller_bias_blocks_buy(self) -> None:
         signal = detect_macro_vwap_signal(make_macro_buy_candles(), "EURUSD", "M5", "VENDEDOR")
         self.assertEqual(signal.side, "NO_TRADE")
+
+    def test_jpy_history_uses_jpy_pip_scale(self) -> None:
+        self.assertAlmostEqual(history_price_to_pips(0.12, "USDJPY"), 12.0)
 
     def test_missing_second_volume_confirmation_blocks_entry(self) -> None:
         candles = make_macro_buy_candles()

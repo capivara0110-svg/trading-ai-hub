@@ -56,11 +56,15 @@ def record_decision(
     return item
 
 
-def evaluate_decisions(path: Path, candles: list[object]) -> dict[str, int]:
+def evaluate_decisions(
+    path: Path, candles: list[object], symbol: str | None = None
+) -> dict[str, int]:
     rows = load_decisions(path)
     closed = 0
     for item in rows:
         if item.get("status") != "OBSERVED" or item.get("side") not in {"BUY", "SELL"}:
+            continue
+        if symbol and str(item.get("symbol") or "").upper() != symbol.upper():
             continue
         entry = item.get("entry")
         stop = item.get("stopLoss")
@@ -94,13 +98,14 @@ def evaluate_decisions(path: Path, candles: list[object]) -> dict[str, int]:
         if item["side"] == "SELL":
             raw *= -1
         cost = float(os.getenv("PAPER_COST_PIPS", "1.3"))
+        pip_multiplier = 100 if "JPY" in str(item.get("symbol") or "").upper() else 10000
         item.update(
             {
                 "status": outcome,
                 "exitPrice": exit_price,
                 "closedAt": exit_time,
-                "grossResultPips": round(raw * 10000, 1),
-                "resultPips": round(raw * 10000 - cost, 1),
+                "grossResultPips": round(raw * pip_multiplier, 1),
+                "resultPips": round(raw * pip_multiplier - cost, 1),
                 "costPips": cost,
             }
         )
