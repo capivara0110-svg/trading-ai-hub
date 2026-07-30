@@ -48,6 +48,7 @@ from packages.strategy_core.signal_history import mark_signal_close_notification
 from packages.strategy_core.signal_history import record_signal
 from packages.strategy_core.signals import detect_forex_signal
 from packages.strategy_core.telegram_alerts import format_signal_message
+from packages.strategy_core.telegram_alerts import format_paper_candidate_message
 from packages.strategy_core.telegram_alerts import format_order_result_message
 from packages.strategy_core.telegram_alerts import format_signal_result_message
 from packages.strategy_core.telegram_alerts import mark_signal_sent
@@ -67,7 +68,7 @@ EURUSD_M5_FBS_DATASET = ROOT / "data" / "forex" / "eurusd_m5_fbs_real_12m.csv"
 WEB_ROOT = ROOT / "apps" / "web"
 ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "").strip()
 CORS_ORIGIN = ALLOWED_ORIGIN if ALLOWED_ORIGIN else "*"
-APP_VERSION = "0.36.0"
+APP_VERSION = "0.37.0"
 ENHANCED_MODE = os.getenv("USE_ENHANCED_STRATEGY", "true").lower() == "true"
 RATE_WINDOW_SECONDS = 10
 RATE_MAX_REQUESTS = 30
@@ -85,6 +86,7 @@ DATASETS = DatasetStore(
 )
 TELEGRAM_ALERT_STATE = RUNTIME_DATA_DIR / "telegram_alert_state.json"
 TELEGRAM_STATUS_STATE = RUNTIME_DATA_DIR / "telegram_status_state.json"
+TELEGRAM_PAPER_CANDIDATE_STATE = RUNTIME_DATA_DIR / "telegram_paper_candidate_state.json"
 JOB_STATE = RUNTIME_DATA_DIR / "job_state.json"
 SIGNAL_HISTORY = RUNTIME_DATA_DIR / "signal_history.json"
 EXECUTION_STATE = RUNTIME_DATA_DIR / "execution_state.json"
@@ -807,6 +809,12 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
     decision_performance = evaluate_decisions(DECISION_LOG, candles, symbol=symbol)
     paper_notifications = notify_closed_paper_signals(performance)
     alert = check_and_send_latest_alert()
+    paper_candidate = maybe_send_daily_paper_candidate(
+        candles,
+        symbol,
+        timeframe,
+        strict_signal_sent=bool(alert.get("sent")),
+    )
     market = forex_market_status(candles)
     dataset_payload = dataset.to_dict(DATASETS.active_id())
     status_update = maybe_send_monitor_status(alert, market, dataset_payload, len(candles))
@@ -816,11 +824,74 @@ def refresh_twelve_data_and_alert(payload: dict[str, object]) -> dict[str, objec
         "dataset": dataset_payload,
         "candles": len(candles),
         "alert": alert,
+        "paperCandidate": paper_candidate,
         "statusUpdate": status_update,
         "performance": performance,
         "decisionPerformance": decision_performance,
         "paperNotifications": paper_notifications,
         "confirmations": confirmation_datasets,
+    }
+
+
+def maybe_send_daily_paper_candidate(
+    candles: list[object],
+    symbol: str,
+    timeframe: str,
+    strict_signal_sent: bool = False,
+) -> dict[str, object]:
+    """Send at most one research-only candidate per UTC day, never to execution."""
+    if os.getenv("TELEGRAM_SEND_DAILY_PAPER_CANDIDATE", "true").lower() != "true":
+        return {"sent": False, "reason": "candidato paper desativado"}
+    if strict_signal_sent:
+        return {"sent": False, "reason": "sinal operacional ja enviado"}
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    if TELEGRAM_PAPER_CANDIDATE_STATE.exists():
+        try:
+            state = json.loads(TELEGRAM_PAPER_CANDIDATE_STATE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            state = {}
+        if state.get("date") == today:
+            return {"sent": False, "reason": "limite diario de candidato paper atingido"}
+
+    candidate = detect_forex_signal_enhanced(candles, symbol=symbol, timeframe=timeframe, lookback=4)
+    if candidate.side == "NO_TRADE":
+        return {"sent": False, "reason": "sem candidato tecnico"}
+
+    min_confidence = float(os.getenv("PAPER_CANDIDATE_MIN_CONFIDENCE", "0.62"))
+    if candidate.confidence < min_confidence:
+        return {"sent": False, "reason": "confianca paper abaixo do minimo"}
+
+    try:
+        result = send_telegram_message(format_paper_candidate_message(candidate))
+    except ValueError as error:
+        return {"sent": False, "reason": str(error)}
+    if not result.get("ok"):
+        return {"sent": False, "reason": "Telegram recusou candidato paper"}
+
+    # The signal is stored for candle-by-candle WIN/LOSS evaluation, but no
+    # execution function is called: this path can never create an MT5 order.
+    history_item = record_signal(candidate, SIGNAL_HISTORY, candles[-1].time if candles else None)
+    TELEGRAM_PAPER_CANDIDATE_STATE.parent.mkdir(parents=True, exist_ok=True)
+    TELEGRAM_PAPER_CANDIDATE_STATE.write_text(
+        json.dumps(
+            {
+                "date": today,
+                "sentAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "symbol": symbol,
+                "side": candidate.side,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "sent": True,
+        "telegramOk": True,
+        "signal": candidate.to_dict(),
+        "history": history_item,
+        "executionCreated": False,
     }
 
 

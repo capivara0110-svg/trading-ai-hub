@@ -49,6 +49,33 @@ def format_signal_message(signal: Signal, ai_note: str | None = None, execution_
     return "\n".join(lines)
 
 
+def format_paper_candidate_message(signal: Signal) -> str:
+    """Format an observational signal that is deliberately never sent to MT5."""
+    targets = " / ".join(str(target) for target in signal.take_profit) if signal.take_profit else "--"
+    reasons = "\n".join(f"- {reason}" for reason in signal.reason)
+    return "\n".join(
+        [
+            "Trading AI Hub",
+            "",
+            "CANDIDATO PAPER — NAO E ORDEM REAL",
+            f"{signal.symbol} {signal.timeframe}",
+            f"Direcao observada: {signal.side}",
+            f"Confianca tecnica: {round(signal.confidence * 100)}%",
+            "",
+            f"Entrada simulada: {signal.entry if signal.entry is not None else '--'}",
+            f"Stop simulado: {signal.stop_loss if signal.stop_loss is not None else '--'}",
+            f"Alvos simulados: {targets}",
+            "",
+            "Motivos:",
+            reasons or "- sem motivo informado",
+            "",
+            "MT5: execucao bloqueada para este candidato.",
+            "O resultado sera acompanhado pelo servidor e enviado ao fechar.",
+            "Aviso: observacao experimental, nao e recomendacao financeira.",
+        ]
+    )
+
+
 def format_order_result_message(order: dict[str, object]) -> str:
     status = str(order.get("status") or "").upper()
     result = "WIN" if status == "WIN" else "LOSS"

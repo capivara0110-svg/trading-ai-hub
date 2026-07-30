@@ -45,6 +45,7 @@ def record_decision(
         previous = rows[-1]
         if (
             previous.get("candleTime") == item["candleTime"]
+            and previous.get("symbol") == item["symbol"]
             and previous.get("side") == item["side"]
             and previous.get("entry") == item["entry"]
         ):
