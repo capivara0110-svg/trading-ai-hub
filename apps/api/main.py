@@ -68,7 +68,7 @@ EURUSD_M5_FBS_DATASET = ROOT / "data" / "forex" / "eurusd_m5_fbs_real_12m.csv"
 WEB_ROOT = ROOT / "apps" / "web"
 ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "").strip()
 CORS_ORIGIN = ALLOWED_ORIGIN if ALLOWED_ORIGIN else "*"
-APP_VERSION = "0.37.0"
+APP_VERSION = "0.37.1"
 ENHANCED_MODE = os.getenv("USE_ENHANCED_STRATEGY", "true").lower() == "true"
 RATE_WINDOW_SECONDS = 10
 RATE_MAX_REQUESTS = 30
@@ -862,6 +862,22 @@ def maybe_send_daily_paper_candidate(
     if candidate.confidence < min_confidence:
         return {"sent": False, "reason": "confianca paper abaixo do minimo"}
 
+    # This is a rejection gate, not an artificial stop adjustment. Candidates
+    # whose technical stop is too wide are ignored so their original setup is
+    # never distorted merely to fit the risk limit.
+    max_stop_pips = float(os.getenv("PAPER_CANDIDATE_MAX_STOP_PIPS", "15"))
+    stop_distance_pips = paper_stop_distance_pips(candidate)
+    if stop_distance_pips is None:
+        return {"sent": False, "reason": "candidato paper sem stop valido"}
+    if stop_distance_pips > max_stop_pips:
+        return {
+            "sent": False,
+            "reason": (
+                f"stop paper acima do limite ({stop_distance_pips:.1f} > "
+                f"{max_stop_pips:.1f} pips)"
+            ),
+        }
+
     try:
         result = send_telegram_message(format_paper_candidate_message(candidate))
     except ValueError as error:
@@ -893,6 +909,15 @@ def maybe_send_daily_paper_candidate(
         "history": history_item,
         "executionCreated": False,
     }
+
+
+def paper_stop_distance_pips(signal: object) -> float | None:
+    entry = getattr(signal, "entry", None)
+    stop_loss = getattr(signal, "stop_loss", None)
+    if entry is None or stop_loss is None:
+        return None
+    multiplier = 100 if "JPY" in str(getattr(signal, "symbol", "")).upper() else 10000
+    return round(abs(float(entry) - float(stop_loss)) * multiplier, 1)
 
 
 def configured_watch_symbols(payload: dict[str, object] | None = None) -> list[str]:
