@@ -42,6 +42,17 @@ class ExecutionDemoGuardTests(unittest.TestCase):
             result = claim_order(self.state_path, "order-1", "CONTEST")
         self.assertTrue(result["claimed"])
 
+    def test_status_resets_stale_daily_count_without_deleting_audit(self):
+        self.state_path.write_text(
+            json.dumps({"orderDay": "2020-01-01", "ordersToday": 2, "orders": {}}),
+            encoding="utf-8",
+        )
+        from packages.strategy_core.execution import execution_status
+
+        result = execution_status(self.state_path)
+        self.assertEqual(0, result["ordersToday"])
+        self.assertEqual("2020-01-01", result["orderDay"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -27,6 +27,8 @@ def execution_status(state_path: Path) -> dict[str, object]:
     state = read_execution_state(state_path)
     order = state.get("order") if isinstance(state.get("order"), dict) else None
     bridge = bridge_status(state)
+    order_day = state.get("orderDay")
+    orders_today = int(state.get("ordersToday") or 0) if order_day == local_execution_day() else 0
     return {
         "enabled": auto_trade_enabled(),
         "mode": os.getenv("AUTO_TRADE_MODE", "DEMO_ONLY"),
@@ -39,9 +41,20 @@ def execution_status(state_path: Path) -> dict[str, object]:
         "claimedTtlSeconds": env_int("AUTO_TRADE_CLAIMED_TTL_SECONDS", 300),
         "pendingOrder": active_order(order),
         "lastOrder": order,
-        "ordersToday": int(state.get("ordersToday") or 0),
-        "orderDay": state.get("orderDay"),
+        "ordersToday": orders_today,
+        "orderDay": order_day,
     }
+
+
+def execution_history(state_path: Path) -> dict[str, object]:
+    state = read_execution_state(state_path)
+    orders = state.get("orders") if isinstance(state.get("orders"), dict) else {}
+    rows = sorted(
+        (item for item in orders.values() if isinstance(item, dict)),
+        key=lambda item: str(item.get("createdAt") or ""),
+        reverse=True,
+    )[:100]
+    return {"orders": rows, "total": len(rows)}
 
 
 def create_pending_order(signal: Signal, state_path: Path, candle_time: str | None = None) -> dict[str, object]:

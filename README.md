@@ -134,7 +134,10 @@ Endpoints iniciais:
 - `http://127.0.0.1:8765/datasets`
 - `http://127.0.0.1:8765/signals/latest`
 - `http://127.0.0.1:8765/signals/history`
+- `http://127.0.0.1:8765/signals/paper-history`
+- `http://127.0.0.1:8765/signals/legacy-history`
 - `http://127.0.0.1:8765/signals/decisions`
+- `http://127.0.0.1:8765/execution/history`
 - `http://127.0.0.1:8765/backtest`
 - `http://127.0.0.1:8765/backtest/original`
 - `http://127.0.0.1:8765/backtest/v2`

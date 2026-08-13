@@ -32,6 +32,7 @@ from packages.strategy_core.execution import authorize_execution
 from packages.strategy_core.execution import claim_order
 from packages.strategy_core.execution import create_pending_order
 from packages.strategy_core.execution import execution_status
+from packages.strategy_core.execution import execution_history
 from packages.strategy_core.execution import mark_order_close_notification_sent
 from packages.strategy_core.execution import mark_order_result
 from packages.strategy_core.execution import pending_order_eligibility
@@ -68,8 +69,8 @@ EURUSD_M5_FBS_DATASET = ROOT / "data" / "forex" / "eurusd_m5_fbs_real_12m.csv"
 WEB_ROOT = ROOT / "apps" / "web"
 ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "").strip()
 CORS_ORIGIN = ALLOWED_ORIGIN if ALLOWED_ORIGIN else "*"
-APP_VERSION = "0.37.1"
-ENHANCED_MODE = os.getenv("USE_ENHANCED_STRATEGY", "true").lower() == "true"
+APP_VERSION = "0.38.0"
+ENHANCED_MODE = os.getenv("USE_ENHANCED_STRATEGY", "false").lower() == "true"
 RATE_WINDOW_SECONDS = 10
 RATE_MAX_REQUESTS = 30
 _rate_buckets: dict[str, tuple[float, int]] = {}
@@ -88,7 +89,9 @@ TELEGRAM_ALERT_STATE = RUNTIME_DATA_DIR / "telegram_alert_state.json"
 TELEGRAM_STATUS_STATE = RUNTIME_DATA_DIR / "telegram_status_state.json"
 TELEGRAM_PAPER_CANDIDATE_STATE = RUNTIME_DATA_DIR / "telegram_paper_candidate_state.json"
 JOB_STATE = RUNTIME_DATA_DIR / "job_state.json"
-SIGNAL_HISTORY = RUNTIME_DATA_DIR / "signal_history.json"
+LEGACY_SIGNAL_HISTORY = RUNTIME_DATA_DIR / "signal_history.json"
+SIGNAL_HISTORY = RUNTIME_DATA_DIR / "operational_signal_history.json"
+PAPER_SIGNAL_HISTORY = RUNTIME_DATA_DIR / "paper_signal_history.json"
 EXECUTION_STATE = RUNTIME_DATA_DIR / "execution_state.json"
 DECISION_LOG = RUNTIME_DATA_DIR / "decision_log.json"
 CONTENT_TYPES = {
@@ -292,6 +295,14 @@ class TradingApiHandler(BaseHTTPRequestHandler):
             self.send_json(current_signal_history())
             return
 
+        if parsed.path == "/signals/paper-history":
+            self.send_json(history_summary(load_history(PAPER_SIGNAL_HISTORY)))
+            return
+
+        if parsed.path == "/signals/legacy-history":
+            self.send_json(history_summary(load_history(LEGACY_SIGNAL_HISTORY)))
+            return
+
         if parsed.path == "/signals/decisions":
             decisions = load_decisions(DECISION_LOG)
             self.send_json({"decisions": decisions[-500:], "total": len(decisions)})
@@ -299,6 +310,10 @@ class TradingApiHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/execution/status":
             self.send_json(execution_status(EXECUTION_STATE))
+            return
+
+        if parsed.path == "/execution/history":
+            self.send_json(execution_history(EXECUTION_STATE))
             return
 
         if parsed.path == "/execution/pending":
@@ -842,6 +857,8 @@ def maybe_send_daily_paper_candidate(
     """Send at most one research-only candidate per UTC day, never to execution."""
     if os.getenv("TELEGRAM_SEND_DAILY_PAPER_CANDIDATE", "true").lower() != "true":
         return {"sent": False, "reason": "candidato paper desativado"}
+    if symbol.upper() not in configured_paper_symbols():
+        return {"sent": False, "reason": f"{symbol.upper()} fora da lista paper"}
     if strict_signal_sent:
         return {"sent": False, "reason": "sinal operacional ja enviado"}
 
@@ -887,7 +904,7 @@ def maybe_send_daily_paper_candidate(
 
     # The signal is stored for candle-by-candle WIN/LOSS evaluation, but no
     # execution function is called: this path can never create an MT5 order.
-    history_item = record_signal(candidate, SIGNAL_HISTORY, candles[-1].time if candles else None)
+    history_item = record_signal(candidate, PAPER_SIGNAL_HISTORY, candles[-1].time if candles else None)
     TELEGRAM_PAPER_CANDIDATE_STATE.parent.mkdir(parents=True, exist_ok=True)
     TELEGRAM_PAPER_CANDIDATE_STATE.write_text(
         json.dumps(
@@ -933,6 +950,15 @@ def configured_watch_symbols(payload: dict[str, object] | None = None) -> list[s
         if symbol and symbol not in symbols:
             symbols.append(symbol)
     return symbols or ["EURUSD"]
+
+
+def configured_paper_symbols() -> set[str]:
+    raw = os.getenv("PAPER_CANDIDATE_SYMBOLS", "EURUSD,GBPUSD")
+    return {
+        symbol
+        for item in raw.split(",")
+        if (symbol := re.sub(r"[^A-Z0-9]", "", item.strip().upper()))
+    }
 
 
 def refresh_watchlist_and_alert(payload: dict[str, object]) -> dict[str, object]:

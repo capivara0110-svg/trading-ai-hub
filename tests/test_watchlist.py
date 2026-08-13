@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import os
 import unittest
 from unittest.mock import patch
 
-from apps.api.main import configured_watch_symbols, paper_stop_distance_pips
+from apps.api.main import configured_paper_symbols, configured_watch_symbols, paper_stop_distance_pips
 from packages.strategy_core.signals import Signal
 
 
 class WatchlistTests(unittest.TestCase):
+    def test_paper_symbols_exclude_usdjpy_by_default(self):
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("PAPER_CANDIDATE_SYMBOLS", None)
+            self.assertEqual(configured_paper_symbols(), {"EURUSD", "GBPUSD"})
+
     def test_default_watchlist_is_parsed_and_deduplicated(self) -> None:
         with patch.dict("os.environ", {"WATCH_SYMBOLS": "EURUSD, GBPUSD, USDJPY, EURUSD"}):
             self.assertEqual(configured_watch_symbols(), ["EURUSD", "GBPUSD", "USDJPY"])
